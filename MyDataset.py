@@ -167,13 +167,15 @@ class MyDataset(torch.utils.data.Dataset):
         low_img = cv2.cvtColor(low_img, cv2.COLOR_BGR2RGB)
         high_img = cv2.cvtColor(high_img, cv2.COLOR_BGR2RGB)
 
-        # 新增：检查图像数值范围，避免异常值
-        if low_img.min() < 0 or low_img.max() > 255:
-            print(f"警告：低光图 {name} 数值范围异常，已裁剪")
-            low_img = np.clip(low_img, 0, 255)
-        if high_img.min() < 0 or high_img.max() > 255:
-            print(f"警告：正常光图 {name} 数值范围异常，已裁剪")
-            high_img = np.clip(high_img, 0, 255)
+        # 新增：确保像素值在0-255（避免读取异常图像导致颜色偏移）
+        low_img = np.clip(low_img, 0, 255).astype(np.uint8)
+        high_img = np.clip(high_img, 0, 255).astype(np.uint8)
+
+        # 2. Tensor转换时，确保归一化正确（除以255后在0-1范围）
+        def Tensor(img):
+            img = img.transpose(2, 0, 1)
+            img = torch.from_numpy(np.ascontiguousarray(img)).float() / 255.0  # 明确用255.0避免整数除法
+            return img
 
         # 后续裁剪、数据增强、Tensor转换逻辑不变...
         h, w, _ = low_img.shape
