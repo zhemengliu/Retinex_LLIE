@@ -185,7 +185,7 @@ def train(args, model, train_loader, test_loader, optimizer, scheduler, device, 
             low_R, low_L, gamma_R, gamma_L, enhance_L1, enhance_L, x_gamma, enhance_img = model(x_low, x_normal)
 
             # 计算总损失
-            loss,  n_loss, i_loss, r_loss = compute_total_loss(
+            loss,  d_loss, i_loss= compute_total_loss(
                 x_low, x_normal, low_R, low_L, gamma_R, gamma_L, enhance_L1, enhance_L, x_gamma, enhance_img, args
             )
 
@@ -197,17 +197,17 @@ def train(args, model, train_loader, test_loader, optimizer, scheduler, device, 
             # 累加损失
             batch_size = x_low.size(0)
             total_loss += loss.item() * batch_size
-            # decom_loss += d_loss.item() * batch_size
-            denoise_loss += n_loss.item() * batch_size
+            decom_loss += d_loss.item() * batch_size
+            # denoise_loss += n_loss.item() * batch_size
             illum_loss += i_loss.item() * batch_size
-            recon_loss += r_loss.item() * batch_size
+            # recon_loss += r_loss.item() * batch_size
 
         # 平均损失
         avg_total = total_loss / len(train_loader.dataset)
-        # avg_d = decom_loss / len(train_loader.dataset)
-        avg_n = denoise_loss / len(train_loader.dataset)
+        avg_d = decom_loss / len(train_loader.dataset)
+        # avg_n = denoise_loss / len(train_loader.dataset)
         avg_i = illum_loss / len(train_loader.dataset)
-        avg_r = recon_loss / len(train_loader.dataset)
+        # avg_r = recon_loss / len(train_loader.dataset)
 
         # 学习率调度（基于当前epoch的损失）
         scheduler.step(avg_total)
@@ -255,9 +255,8 @@ def train(args, model, train_loader, test_loader, optimizer, scheduler, device, 
         # 打印日志（标注续训epoch）
         epoch_time = time.time() - epoch_start
         log_str = f"[续训] Epoch [{epoch + 1}/{args.epochs}] | Time: {epoch_time:.2f}s | " \
-                  f"Total Loss: {avg_total:.6f} " \
-                  f"Denoise Loss: {avg_n:.6f} | Illum Loss: {avg_i:.6f} | " \
-                  f"Recon Loss: {avg_r:.6f} | Best Loss: {best_loss:.6f}"
+                  f"Total Loss: {avg_total:.6f} | Decom Loss：{avg_d:.6f}|" \
+                  f"Illum Loss: {avg_i:.6f} |Best Loss: {best_loss:.6f}"
         print(log_str)
 
         # 写入训练日志（追加模式，避免覆盖）
@@ -325,7 +324,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Low Light Enhancement (Uretinex+Noise2noise+Zero-DCE)")
     # 通用参数
     parser.add_argument("--epochs", type=int, default=100, help="总训练epoch数（原默认100）")
-    parser.add_argument("--batch_size", type=int, default=4, help="Batch size（原代码实际用4，此处统一）")
+    parser.add_argument("--batch_size", type=int, default=8, help="Batch size（原代码实际用4，此处统一）")
     parser.add_argument("--lr", type=float, default=1e-4, help="初始学习率")
     parser.add_argument("--crop_size", type=int, default=64, help="Crop size")
     parser.add_argument("--gpu_id", type=int, default=0, help="GPU ID")
@@ -336,7 +335,7 @@ if __name__ == "__main__":
     # parser.add_argument("--resume_epoch", type=int, default=1, help="续训起始epoch（从28开始）")
     parser.add_argument("--resume_ckpt", type=str, default="./ckpt/best_model.pth", help="续训模型路径")
     # Uretinex参数
-    parser.add_argument("--unfolding_round", type=int, default=3, help="Uretinex迭代轮次")
+    parser.add_argument("--unfolding_round", type=int, default=5, help="Uretinex迭代轮次")
     parser.add_argument("--gamma", type=float, default=0.1, help="P的正则化参数")
     parser.add_argument("--lamda", type=float, default=0.1, help="Q的正则化参数")
     parser.add_argument("--Roffset", type=float, default=0.05, help="gamma增量")
@@ -345,7 +344,7 @@ if __name__ == "__main__":
     parser.add_argument("--norm_layer", type=str, default="batch", help="归一化层类型")
     parser.add_argument("--concat_L", type=bool, default=False, help="是否拼接L到R")
     # Zero-DCE参数
-    parser.add_argument("--patch_size", type=int, default=16, help="L_exp patch size")
+    parser.add_argument("--patch_size", type=int, default=8, help="L_exp patch size")
     parser.add_argument("--mean_val", type=float, default=0.5, help="L_exp目标均值")
     # Noise2noise参数
     parser.add_argument("--noise_model", type=tuple, default=('gaussian', 50), help="噪声类型")
@@ -358,7 +357,8 @@ if __name__ == "__main__":
     print(f" Using device: {device}")
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
-    new_root_dir = f"new_results_{timestamp}"  # 新根目录名称，可自定义前缀
+    # new_root_dir = f"new_results_{timestamp}"  # 新根目录名称，可自定义前缀
+    new_root_dir = f"modify loss_L1 and not max illum"
 
     # 定义新的子文件夹路径（模型权重+可视化结果）
     new_ckpt_dir = os.path.join(new_root_dir, "ckpt")  # 新模型保存目录

@@ -149,25 +149,29 @@ def compute_total_loss(x_low, x_normal, low_R, low_L, gamma_R, gamma_L, enhance_
     # 分解保真损失：x_low ≈ R*L
     decom_recon_loss = nn.MSELoss()(low_R * low_L, x_low) + nn.MSELoss()(gamma_R * gamma_L, x_gamma)
 
-    decom_consist_loss = nn.MSELoss()(low_R, gamma_R)
+    decom_consist_loss = nn.MSELoss()(low_R, gamma_R)*0.1
     # 照明层TV损失
-    decom_tv_loss = L_TV()(low_L) * uretinex_opts.tv_weight
-    total_decom_loss = decom_recon_loss + decom_consist_loss + decom_tv_loss
+    decom_tv_loss = L_TV()(low_L) * uretinex_opts.tv_weight * 0.1
+    low_L0 = torch.max(x_low, dim=1, keepdim=True)[0]  # 保留批次和通道维度
+    gamma_L0 = torch.max(x_gamma, dim=1, keepdim=True)[0]
+    L_con = nn.MSELoss()(low_L0, low_L) + nn.MSELoss()(gamma_L0, gamma_L)
+    total_decom_loss = decom_recon_loss + decom_consist_loss + decom_tv_loss+L_con
 
     # 2. Noise2noise去噪损失（原始逻辑：带噪反射层→干净反射层）
     # denoise_loss = nn.MSELoss()(denoise_R, gamma_R)
 
     # 3. Zero-DCE照明增强损失（原始逻辑）
-    L_normal = torch.mean(x_normal, dim=1, keepdim=True)  # 正常光照明层标签
+    # L_normal = torch.mean(x_normal, dim=1, keepdim=True)  # 正常光照明层标签
     color_loss = L_color()(enhance_img)  # 扩3通道算颜色损失#######################改enhance_low为enhance_img
 
     exp_loss = L_exp(patch_size=16, mean_val=0.5)(enhance_L1)
-    spa_loss = torch.mean(L_spa()(L_normal, enhance_L1))
+    # color_loss_img = L_color()(enhance_img)
+    # spa_loss = torch.mean(L_spa()(L_normal, enhance_L1))
     # color_loss = L_color()(enhance_img)  # 扩3通道算颜色损失#######################改enhance_low为enhance_img
     tv_loss = L_TV()(enhance_L1)
 
 
-    total_illum_loss =  exp_loss + spa_loss + 0.3 * color_loss + 0.01 * tv_loss
+    total_illum_loss =  exp_loss + 0.3 * color_loss + 0.01 * tv_loss
 
     ##########以enhance_L作为输入
 
@@ -180,16 +184,16 @@ def compute_total_loss(x_low, x_normal, low_R, low_L, gamma_R, gamma_L, enhance_
     # total_illum_loss = exp_loss + 0.01 * spa_loss + 0.3 * color_loss + 0.01 * tv_loss
 
     # 4. 最终重建损失：增强图≈正常光图
-    recon_final_loss = nn.L1Loss()(enhance_img, x_normal)
+    # recon_final_loss = nn.L1Loss()(enhance_img, x_normal)
 
     # 总损失（关键修改：确保所有损失项都是标量，并最终求和为标量）
-    total_loss = (0.2 * total_decom_loss + 0.3 * total_illum_loss + 0.3 * recon_final_loss)
+    total_loss = (0.2 * total_decom_loss + 0.3 * total_illum_loss )
 
     # 强制确保 total_loss 是标量（添加均值操作，针对可能的维度残留）
     if total_loss.dim() > 0:
         total_loss = total_loss.mean()
 
-    return total_loss, total_decom_loss, total_illum_loss, recon_final_loss
+    return total_loss, total_decom_loss, total_illum_loss
 
 # def compute_total_loss(x_low, x_normal, low_R, low_L, gt_R, gt_L, enhance_L1, enhance_L, denoise_R, enhance_img,
 #                        uretinex_opts):
