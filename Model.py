@@ -19,9 +19,12 @@ import lpips
 from sys import platform
 from string import ascii_letters
 import matplotlib.pyplot as plt
-from Decom_Model import IterativeUretinex
+# from Decom_Model import IterativeUretinex, DecomNet_RTV # 注释掉旧的
+from model_Decom_fft import DecomNet_Fourier  # 假设正确的类名叫这个
+
 from Illum_Model import *
-from Denoise_Model import *
+# from Denoise_Model import *
+import torch.fft
 
 
 def hsv_to_rgb(hsv):
@@ -106,63 +109,59 @@ def rgb_to_hsv(img):
     hsv = torch.cat([hue, saturation, value], dim=1)
     return hsv
 
-
+# 在 Model.py 文件中，找到 class LLIE(nn.Module): 并用下面的代码块完整替换
 
 class LLIE(nn.Module):
-    def __init__(self, args):
+    def __init__(self, args=None): # 将args设为可选，方便调试
         super().__init__()
-        self.decom_net = IterativeUretinex(args)
+        # 确保这里导入的是正确的组件
+        # DecomNet_Fourier 来自 model_Decom_fft.py
+        # enhance_net_nopool 来自 Illum_Model.py
+        self.decom_net = DecomNet_Fourier()
         self.enhance_net = enhance_net_nopool()
-        self.denoise_net = SRResnet(input_channels=3, output_channels=3)
 
-    def gamma_correction(self, low_img):
-        # 增加输入检查
-        low_img = torch.clamp(low_img, 1e-4, 1.0)
+    def forward(self, x_low, decom_only=False, enhance_only=False, R_low=None, L_low=None):
+        """
+        模型的前向传播函数。
+        """
+        # 模式1: 只执行分解网络 (用于训练第二阶段的第一步)
+        if decom_only:
+            low_R, low_L, A, T, S, S_low_zy, T_low_zy = self.decom_net(x_low)
+            return low_R, low_L, A, T, S, S_low_zy, T_low_zy
+        # 模式2: 只执行增强网络 (用于训练第二阶段的第二步)
+        if enhance_only:
+            if L_low is None or R_low is None:
+                raise ValueError("R_low and L_low must be provided when enhance_only is True.")
 
-        hsv_img = rgb_to_hsv(low_img)
-        gamma = random.uniform(1.2, 1.8)
+            # EnhanceNet 只返回增强后的L
+            enhance_L = self.enhance_net(L_low)
+            # 在这里完成图像重建
+            enhance_img = R_low * enhance_L
+            return enhance_L, enhance_img
+        # 模式3: 完整流程 (用于测试/可视化)
+        # 首先分解
+        low_R, low_L, A, T, S, _, _ = self.decom_net(x_low)
 
-        V = hsv_img[:, 2] ** (1 / gamma)
-        V = torch.clamp(V, 1e-4, 1)
-        hsv_img[:, 2] = V
+        # 然后增强光照图
+        enhance_L = self.enhance_net(low_L)
+        # 最后重建图像
+        enhance_img = low_R * enhance_L
+        # 返回所有需要的结果
+        return low_R, low_L, A, T, S, enhance_L, enhance_img
 
-        x_gamma = hsv_to_rgb(hsv_img)
-        x_gamma = torch.clamp(x_gamma, 0, 1)
-
-        return x_gamma
-
-    def forward(self, low_img, gt_img):
-        low_R, low_L = self.decom_net(low_img)
-        gt_R, gt_L = self.decom_net(gt_img)
-        x_gamma = self.gamma_correction(low_img)
-        gamma_R, gamma_L = self.decom_net(x_gamma)
-        # print(f"low_L 通道数: {low_L.shape[1]}")  # 应输出 1
-        # print(f"enhance_net 第一层输入通道数: {self.enhance_net.e_conv1.in_channels}")  # 应输出 1
-        # L_3ch = low_L.repeat(1, 3, 1, 1)
-        enhance_L1, enhance_L, _ = self.enhance_net(low_L)
-        enhance_L1 = torch.clamp(enhance_L1, 0.0, 1.0)
-        enhance_L = torch.clamp(enhance_L, 0.0, 1.0)
-        # denoise_R = self.denoise_net(low_R)
-        enhance_img = enhance_L * gamma_R
-        enhance_img = torch.clamp(enhance_img, 0.0, 1.0)###+约束
-
-        return low_R, low_L, gamma_R, gamma_L, enhance_L1, enhance_L, x_gamma, enhance_img
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Low Light Enhancement")
 
 
-if __name__== '__main__':
-    parser = argparse.ArgumentParser(description="Low Light Enhancement (Uretinex+Noise2noise+Zero-DCE)")
-    parser.add_argument("--unfolding_round", type=int, default=3, help="Uretinex iterative rounds")
-    parser.add_argument("--gamma", type=float, default=0.1, help="P's lambda (原始参数)")
-    parser.add_argument("--lamda", type=float, default=0.1, help="Q's lambda (原始参数)")
-    parser.add_argument("--Roffset", type=float, default=0.05, help="gamma increment (原始参数)")
-    parser.add_argument("--Loffset", type=float, default=0.05, help="lamda increment (原始参数)")
-    parser.add_argument("--concat_L", type=bool, default=False, help="Concat L to R (原始参数)")
-    args = parser.parse_args()
-    x = torch.rand(1,3,128,128).cuda()
-    net=LLIE(args).cuda()
-    low_R, low_L, gamma_R, gamma_L, enhance_L1, enhance_L, x_gamma, enhance_img=net(x, x)
+    # 为了让 __main__ 能运行，需要一个假的 args 对象
+    class DummyArgs:
+        pass
+
+
+    args = DummyArgs()
+
+    x = torch.rand(1, 3, 128, 128).cuda()
+    net = LLIE(args).cuda()
+    low_R, low_L, gamma_R, gamma_L, x_gamma, enhance_L, enhance_img = net(x)
     print(enhance_img.shape)
-
-
-
 
