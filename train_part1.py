@@ -13,7 +13,7 @@ from torchvision import transforms
 from tqdm import tqdm
 
 # 假设你的模型定义在 Model.py 文件中
-from Model import LLIE
+from model_Decom_fft import LLIE
 from loss_DecomNet import DecomLoss
 
 
@@ -150,12 +150,12 @@ if __name__ == '__main__':
 
     parser.add_argument('--data_path', type=str, default='D:/low_light_image/Dataset/Dataset/LOLdataset/our485/low',
                         help='Path to the training data')
-    parser.add_argument('--epochs', type=int, default=10, help='Number of training epochs')
+    parser.add_argument('--epochs', type=int, default=35, help='Number of training epochs')
     parser.add_argument('--batch_size', type=int, default=16, help='Batch size for training')
-    parser.add_argument('--lr', type=float, default=5e-7, help='Learning rate for optimizer (already lowered)')
+    parser.add_argument('--lr', type=float, default=1e-5, help='Learning rate for optimizer (already lowered)')
     parser.add_argument('--weights_dir', type=str, default='weights_decom', help='Directory to save model weights')
-    parser.add_argument('--resume_epoch', type=int, default=0,
-                        help='Epoch to resume from (0 for new training)')  # 改回0，从头开始
+    parser.add_argument('--resume_epoch', type=int, default=25,
+                        help='Epoch to resume')  # 改回0，从头开始
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
 
     args = parser.parse_args()
