@@ -20,7 +20,7 @@ from sys import platform
 from string import ascii_letters
 import matplotlib.pyplot as plt
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 # -------------------------- 2. 基础工具函数（保留Uretinex原始架构） --------------------------
 def get_conv2d_layer(in_c, out_c, k, s, p=0, dilation=1, groups=1):
@@ -61,7 +61,9 @@ class P(nn.Module):
         super().__init__()
 
     def forward(self, I, Q, R, gamma):
-        denominator = gamma + Q * Q  # 增加epsilon防止除零
+        return ((I * Q + gamma * R) / (gamma + Q * Q + 1e-6))  # 仅加1e-8防除零，公式不变
+
+        denominator = gamma + Q * Q + 1e-6  # 增加epsilon防止除零
         return ((I * Q + gamma * R) / denominator)
 
 class Q(nn.Module):
@@ -80,7 +82,7 @@ class Q(nn.Module):
         PB = P[:, 2:3, :, :]
         # 原始公式，未修改
         numerator = (IR * PR + IG * PG + IB * PB) + lamda * L
-        denominator = (PR * PR + PG * PG + PB * PB) + lamda
+        denominator = (PR * PR + PG * PG + PB * PB) + lamda + 1e-6
         return numerator / denominator
 
 
@@ -102,7 +104,7 @@ class Decom(nn.Module):
 
         # 新增：权重初始化（Xavier初始化，适合ReLU类激活函数）
         self._initialize_weights()
-        #读入init_  在评估里面
+
 
     def _initialize_weights(self):
         for m in self.modules():
@@ -110,8 +112,6 @@ class Decom(nn.Module):
                 nn.init.xavier_uniform_(m.weight)
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0.0)  # 偏置初始化为0，避免偏移过大
-
-
 
     def forward(self, input):
         output = self.decom(input)
@@ -141,32 +141,6 @@ class SELayer(nn.Module):
         y = self.fc(y).view(b, c, 1, 1)
         return x * y.expand_as(x)
 
-
-class Illumination_Alone(nn.Module):
-    def __init__(self, opts):
-        super().__init__()
-        self.opts = opts
-        self.conv1 = get_conv2d_layer(in_c=1, out_c=32, k=5, s=1, p=2)
-        self.conv2 = get_conv2d_layer(in_c=32, out_c=32, k=5, s=1, p=2)
-        self.conv3 = get_conv2d_layer(in_c=32, out_c=32, k=5, s=1, p=2)
-        self.conv4 = get_conv2d_layer(in_c=32, out_c=32, k=5, s=1, p=2)
-        self.conv5 = get_conv2d_layer(in_c=32, out_c=1, k=1, s=1, p=0)
-
-        self.leaky_relu_1 = nn.LeakyReLU(0.2, inplace=True)
-        self.leaky_relu_2 = nn.LeakyReLU(0.2, inplace=True)
-        self.leaky_relu_3 = nn.LeakyReLU(0.2, inplace=True)
-        self.leaky_relu_4 = nn.LeakyReLU(0.2, inplace=True)
-        self.relu = nn.ReLU()
-        # self.sigmoid = nn.Sigmoid()
-
-    def forward(self, l):
-        x = l
-        x1 = self.leaky_relu_1(self.conv1(x))
-        x2 = self.leaky_relu_2(self.conv2(x1))
-        x3 = self.leaky_relu_3(self.conv3(x2))
-        x4 = self.leaky_relu_4(self.conv4(x3))
-        x5 = self.relu(self.conv5(x4))
-        return x5
 
 class HalfDnCNNSE(nn.Module):
     """Uretinex原始反射层恢复网络，结构未修改"""
@@ -211,177 +185,60 @@ class HalfDnCNNSE(nn.Module):
         x5 = self.relu7(self.conv7(x4))
         n = self.conv8(x5)
         r_restore = r + n
+        r_restore = torch.clamp(r_restore, 0.0, 1.0)
         return r_restore
 
 
+# Decom_Model.py
 class IterativeUretinex(nn.Module):
-    def __init__(self, opts, unfolding_round=3):
+    def __init__(self, opts=None, unfolding_round=3):
         super().__init__()
+        # 设置默认参数
+        if opts is None:
+            opts = argparse.Namespace(
+                gamma=0.1,
+                lamda=0.1,
+                Roffset=0.05,
+                Loffset=0.05,
+                concat_L=False
+            )
+
         self.opts = opts
         self.unfolding_round = unfolding_round
         self.init_decom = Decom()
         self.P_solver = P()
         self.Q_solver = Q()
         self.r_restore_net = HalfDnCNNSE(opts)
-        self.l_restore_net = Illumination_Alone(opts)
-
-
-    def load_init_decom(self):
-        checkpoint_Decom_low = torch.load('./init_low.pth')
-        self.init_decom.load_state_dict(checkpoint_Decom_low['state_dict']['model_R'])
-        # to freeze the params of Decomposition Model
-        for param in self.init_decom.parameters():
-            param.requires_grad = False
-        return self.init_decom
-
 
     def forward(self, input_img):
-        # 修复：正确初始化变量
-        # 确保输入在合理范围内
-        # input_img = torch.clamp(input_img, 0.0, 1.0)
+        input_img = torch.clamp(input_img, 0.0, 1.0)
 
-        # 添加输入检查
-        # print(f"分解模块输入 - input_img 范围: [{input_img.min():.4f}, {input_img.max():.4f}]")
-         # R对应P，L对应Q
-        # 修复迭代逻辑
+        # 初始分解
+        R, L = self.init_decom(input_img)
+        P, Q = R, L
+
+        # 迭代优化
         for t in range(self.unfolding_round):
-            if t==0:
-                P, Q = self.init_decom(input_img)
-            else:
+            if t > 0:
                 w_p = self.opts.gamma + self.opts.Roffset * t
                 w_q = self.opts.lamda + self.opts.Loffset * t
-                # 修复：使用正确的变量顺序
+
                 P = self.P_solver(I=input_img, Q=Q, R=R, gamma=w_p)
                 Q = self.Q_solver(I=input_img, P=P, L=L, lamda=w_q)
-                # print(f"迭代{t}后 - P范围: {P.min():.4f}~{P.max():.4f}, Q范围: {Q.min():.4f}~{Q.max():.4f}")
 
-            # # 主动约束，而非检测到NaN后替换
-            # P = torch.clamp(P, 0.0, 1.0)  # 缩小范围，避免极端值
-            # Q = torch.clamp(Q, 0.0, 1.0)
-            # 修复：反射层恢复应该在每次迭代都执行
-            R = self.r_restore_net(r=P, l=Q)
-            L = self.l_restore_net(l=Q)
+                # 温和的数值约束
+                P = torch.clamp(P, 0.01, 0.99)
+                Q = torch.clamp(Q, 0.01, 0.99)
 
-            # print(f"反射层恢复后 - R范围: {R.min():.4f}~{R.max():.4f}, L范围: {L.min():.4f}~{L.max():.4f}")
-            # 修复：确保输出在合理范围内
-            R = torch.clamp(R, 0.0, 1.0)
-            L = torch.clamp(L, 0.0, 1.0)
+            # 只在最后一次迭代进行反射层恢复
+            if t == self.unfolding_round - 1:
+                R = self.r_restore_net(r=P, l=Q)
+            else:
+                R = P
+
+            L = Q
 
         return R, L
-
-
-class HyPaNet(nn.Module):
-    def __init__(self, in_nc=1, out_nc=5, channel=64):
-        super(HyPaNet, self).__init__()
-        self.mlp = nn.Sequential(
-            nn.Conv2d(in_nc, channel, 1, padding=0, bias=True),
-            nn.ReLU(),
-            nn.Conv2d(channel, channel, 1, padding=0, bias=True),
-            nn.ReLU(),
-            nn.Conv2d(channel, out_nc, 1, padding=0, bias=True),
-            nn.Softplus())
-
-    def forward(self, x):
-        x = self.mlp(x) + 1
-        return x
-
-
-class HyParNet(nn.Module):
-    def __init__(self, in_nc=1, out_nc=1):
-        super(HyParNet, self).__init__()
-        self.mlp = nn.Sequential(
-            nn.Conv2d(in_nc, out_nc, 3, padding=1, bias=True),
-            nn.BatchNorm2d(out_nc),
-            nn.Sigmoid())
-
-    def forward(self, x):
-        x = self.mlp(x) + 0.001
-        return x
-
-def grad(x):
-    grd_x = torch.diff(x, dim=3)
-    grd_x = F.pad(grd_x, (0, 1, 0, 0))
-    grd_y = torch.diff(x, dim=2)
-    grd_y = F.pad(grd_y, (0, 0, 0, 1))
-    return grd_x, grd_y
-
-
-def fftn(t, batch, channel, row, col, dim):
-    y = torch.fft.fft(t, col, dim=dim)
-    y = y.expand(batch, channel, col, row)
-    return y
-
-
-def fftnt(t, batch, channel, row, col, dim):
-    y = torch.fft.fft(t, col, dim=dim)
-    y = y.expand(batch, channel, row, col)
-    return y
-
-
-def Dive(x, y):
-    x_diff = x[:, :, :, :-1] - x[:, :, :, 1:]
-    x_e = (x[:, :, :, -1] - x[:, :, :, 0]).unsqueeze(3)
-    x_diff = torch.cat((x_e, x_diff), 3)
-    y_diff = y[:, :, :-1, :] - y[:, :, 1:, :]
-    y_e = (y[:, :, -1, :] - y[:, :, 0, :]).unsqueeze(2)
-    y_diff = torch.cat((y_e, y_diff), 2)
-    return y_diff + x_diff
-
-
-class DecomNet_RTV(nn.Module):
-    def __init__(self, in_ch, k1=10):
-        super(DecomNet_RTV, self).__init__()
-        self.hypar = HyPaNet(1, k1).to(device)
-        self.par1 = HyParNet(in_ch).to(device)
-        self.par2 = HyParNet(in_ch).to(device)
-        self.par3 = HyParNet(in_ch).to(device)
-        self.k1 = k1
-
-    def forward(self, O):
-        batch, ch, row, col = O.shape
-
-        I = O.clone()
-        d1 = torch.zeros_like(I).to(device)
-        d2 = torch.zeros_like(I).to(device)
-        y1 = torch.zeros_like(I).to(device)
-        y2 = torch.zeros_like(I).to(device)
-
-
-        mu1 = torch.tensor(1.0).unsqueeze(0).unsqueeze(0).unsqueeze(0).unsqueeze(0)
-        mu = self.hypar(mu1.to(device)).to(device)
-        alpha = 0.001 * self.par1(O).to(device)
-        px = self.par2(O).to(device)
-        py = self.par3(O).to(device)
-
-        eps = 0.001
-        Dx = ([1.0], [-1.0])
-        Dy = ([1.0, -1.0])
-        Dx = torch.tensor(Dx).unsqueeze(0).unsqueeze(0).to(device)
-        Dy = torch.tensor(Dy).unsqueeze(0).unsqueeze(0).unsqueeze(0).to(device)
-        eigDtD = torch.pow(torch.abs(fftn(Dx, batch, ch, col, row, 2)), 2) + torch.pow(
-            torch.abs(fftnt(Dy, batch, ch, row, col, 3)), 2).to(device)
-
-        I_list = []
-
-        for i in range(self.k1):
-            rhs_I = O - mu[0, i, 0, 0] * Dive(d1 + y1, d2 + y2)
-            lhs_I = 1 + mu[0, i, 0, 0] * eigDtD
-            I = torch.real(torch.fft.ifftn(torch.fft.fftn(rhs_I) / lhs_I))
-            DxI, DyI = grad(I)
-
-            wtbx = torch.max(torch.pow(torch.abs(DxI.to(device)), (2 - px)), torch.tensor(eps).to(device)) ** (-1)
-            wtby = torch.max(torch.pow(torch.abs(DyI.to(device)), (2 - py)), torch.tensor(eps).to(device)) ** (-1)
-            wx = wtbx.to(device)
-            wy = wtby.to(device)
-            d1 = mu[0, i, 0, 0] * (DxI.to(device) - y1) / (2 * alpha * wx + mu[0, i, 0, 0]+1e-3)
-            d2 = mu[0, i, 0, 0] * (DyI.to(device) - y2) / (2 * alpha * wy + mu[0, i, 0, 0]+1e-3)
-            y1 = y1 + (d1 - DxI.to(device))
-            y2 = y2 + (d2 - DyI.to(device))
-            I_list.append(I)
-            # wxx = torch.sqrt(alpha * wx)
-            # wyy = torch.sqrt(alpha * wy)
-
-        return I
 
 
 if __name__== '__main__':
@@ -397,3 +254,4 @@ if __name__== '__main__':
     net=IterativeUretinex(args).cuda()
     R , L=net(x)
     print(R.shape,L.shape)
+
