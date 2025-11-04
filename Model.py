@@ -135,14 +135,17 @@ class LLIE(nn.Module):
         # 确保输入在合理范围内
         # low_img = torch.clamp(low_img, 0.0, 1.0)
 
-        low_L0 = torch.max(low_img, dim=1, keepdim=True)[0]  # 保留批次和通道维度
+        low_L0 = torch.max(low_img, dim=1, keepdim=True)[0] # 保留批次和通道维度
+        low_L0 = torch.clamp(low_L0,0.0,1.0)
         low_L = self.decom_net(low_L0)
         low_L = torch.clamp(low_L, 0.0, 1.0)
         low_R = low_img / (low_L + 1e-3)
         low_R = torch.clamp(low_R, 0.0,1.0)
 
         x_gamma = self.gamma_correction(low_img)
+        x_gamma = torch.clamp(x_gamma,0.0,1.0)
         gamma_L0 = torch.max(x_gamma, dim=1, keepdim=True)[0]  # 保留批次和通道维度
+        gamma_L0 = torch.clamp(gamma_L0,0.0,1.0)
         gamma_L = self.decom_net(gamma_L0)
         gamma_L = torch.clamp(gamma_L,0.0,1.0)
         gamma_R = x_gamma / (gamma_L + 1e-3)
@@ -194,6 +197,7 @@ class LLIE(nn.Module):
         # 照明增强
         # print(f"照明增强输入 low_L 形状: {low_L.shape}, 范围: [{low_L.min():.4f}, {low_L.max():.4f}]")
         enhance_L, _ = self.enhance_net(low_L)
+        enhance_L = torch.clamp(enhance_L,0.0,1.0)
         # enhance_L = torch.clamp(enhance_L, 0.0, 1.0)
         # print(f"照明增强输出 - enhance_L范围: [{enhance_L.min():.4f}, {enhance_L.max():.4f}]")
         # print(f"[调试] 增强后光照范围: {torch.min(enhance_L):.4f} ~ {torch.max(enhance_L):.4f}")

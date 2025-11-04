@@ -334,7 +334,7 @@ if __name__ == "__main__":
     # 通用参数
     parser.add_argument("--epochs", type=int, default=100, help="总训练epoch数（原默认100）")
     parser.add_argument("--batch_size", type=int, default=16, help="Batch size（原代码实际用4，此处统一）")
-    parser.add_argument("--lr", type=float, default=1e-5, help="初始学习率")
+    parser.add_argument("--lr", type=float, default=1e-6, help="初始学习率")
     parser.add_argument("--crop_size", type=int, default=64, help="Crop size")
     parser.add_argument("--gpu_id", type=int, default=0, help="GPU ID")
     parser.add_argument("--ckpt_dir", type=str, default="./ckpt", help="模型保存目录（需包含best_model.pth）")
@@ -344,7 +344,7 @@ if __name__ == "__main__":
     # parser.add_argument("--resume_epoch", type=int, default=1, help="续训起始epoch（从28开始）")
     parser.add_argument("--resume_ckpt", type=str, default="./ckpt/best_model.pth", help="续训模型路径")
     # Uretinex参数
-    parser.add_argument("--unfolding_round", type=int, default=3, help="Uretinex迭代轮次")
+    parser.add_argument("--unfolding_round", type=int, default=5, help="Uretinex迭代轮次")
     parser.add_argument("--gamma", type=float, default=0.1, help="P的正则化参数")
     parser.add_argument("--lamda", type=float, default=0.1, help="Q的正则化参数")
     parser.add_argument("--Roffset", type=float, default=1.01, help="gamma增量")

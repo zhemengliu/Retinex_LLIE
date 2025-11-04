@@ -393,7 +393,12 @@ if __name__== '__main__':
     parser.add_argument("--Loffset", type=float, default=0.05, help="lamda increment (原始参数)")
     parser.add_argument("--concat_L", type=bool, default=False, help="Concat L to R (原始参数)")
     args = parser.parse_args()
-    x = torch.rand(1,3,128,128).cuda()
-    net=IterativeUretinex(args).cuda()
-    R , L=net(x)
-    print(R.shape,L.shape)
+    #从RGB图像提取亮度通道作为输入
+    x_rgb = torch.rand(1, 3, 128, 128).cuda()
+    x_gray = torch.max(x_rgb, dim=1, keepdim=True)[0]
+    net=DecomNet_RTV(in_ch=1, k1=10).cuda()
+    R=net(x_gray)
+    # x = torch.rand(1,3,128,128).cuda()
+    # net=IterativeUretinex(args).cuda()
+    # R , L=net(x)
+    # print(R.shape,L.shape)

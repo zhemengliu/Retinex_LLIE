@@ -22,11 +22,11 @@ import matplotlib.pyplot as plt
 
 
 class L_spa(nn.Module):
-    """原始空间一致性损失，未修改"""
+    """改进的空间一致性损失，增加数值稳定性"""
 
     def __init__(self):
         super(L_spa, self).__init__()
-        # 原始梯度核，未修改
+        # 原始梯度核保持不变
         kernel_left = torch.FloatTensor([[0, 0, 0], [-1, 1, 0], [0, 0, 0]]).cuda().unsqueeze(0).unsqueeze(0)
         kernel_right = torch.FloatTensor([[0, 0, 0], [0, 1, -1], [0, 0, 0]]).cuda().unsqueeze(0).unsqueeze(0)
         kernel_up = torch.FloatTensor([[0, -1, 0], [0, 1, 0], [0, 0, 0]]).cuda().unsqueeze(0).unsqueeze(0)
@@ -38,19 +38,27 @@ class L_spa(nn.Module):
         self.pool = nn.AvgPool2d(4)
 
     def forward(self, org, enhance):
-        """原始损失计算逻辑，未修改"""
         b, c, h, w = org.shape
+
+        # 添加数值稳定性
+        org = torch.clamp(org, 0.0, 1.0)
+        enhance = torch.clamp(enhance, 0.0, 1.0)
+
         org_mean = torch.mean(org, 1, keepdim=True)
         enhance_mean = torch.mean(enhance, 1, keepdim=True)
         org_pool = self.pool(org_mean)
         enhance_pool = self.pool(enhance_mean)
-        # 原始权重计算，未修改
-        weight_diff = torch.max(
+
+        # 改进权重计算，增加数值稳定性
+        weight_diff = torch.clamp(
             torch.FloatTensor([1]).cuda() + 10000 * torch.min(org_pool - torch.FloatTensor([0.3]).cuda(),
                                                               torch.FloatTensor([0]).cuda()),
-            torch.FloatTensor([0.5]).cuda())
+            min=0.1, max=10.0  # 限制权重范围
+        )
+
         E_1 = torch.mul(torch.sign(enhance_pool - torch.FloatTensor([0.5]).cuda()), enhance_pool - org_pool)
-        # 原始梯度差计算，未修改
+
+        # 梯度计算
         D_org_left = F.conv2d(org_pool, self.weight_left, padding=1)
         D_org_right = F.conv2d(org_pool, self.weight_right, padding=1)
         D_org_up = F.conv2d(org_pool, self.weight_up, padding=1)
@@ -59,13 +67,15 @@ class L_spa(nn.Module):
         D_enhance_right = F.conv2d(enhance_pool, self.weight_right, padding=1)
         D_enhance_up = F.conv2d(enhance_pool, self.weight_up, padding=1)
         D_enhance_down = F.conv2d(enhance_pool, self.weight_down, padding=1)
-        # 原始损失求和，未修改
-        D_left = torch.pow(D_org_left - D_enhance_left, 2)
-        D_right = torch.pow(D_org_right - D_enhance_right, 2)
-        D_up = torch.pow(D_org_up - D_enhance_up, 2)
-        D_down = torch.pow(D_org_down - D_enhance_down, 2)
+
+        # 梯度差计算，增加稳定性
+        D_left = torch.pow(torch.clamp(D_org_left - D_enhance_left, -10, 10), 2)
+        D_right = torch.pow(torch.clamp(D_org_right - D_enhance_right, -10, 10), 2)
+        D_up = torch.pow(torch.clamp(D_org_up - D_enhance_up, -10, 10), 2)
+        D_down = torch.pow(torch.clamp(D_org_down - D_enhance_down, -10, 10), 2)
+
         E = torch.mean(D_left + D_right + D_up + D_down)
-        return E
+        return torch.clamp(E, 0.0, 1.0)  # 限制损失范围
 
 
 class L_exp(nn.Module):
@@ -130,7 +140,7 @@ def compute_total_loss(x_low, low_R, low_L, gamma_R, gamma_L, x_gamma, enhance_L
     r_gradient_loss  = L_spa()(low_R, x_low) + L_spa()(gamma_R, x_gamma)
     r_gradient_loss = torch.clamp(r_gradient_loss, 0, 10.0) # 防止梯度爆炸
     decom_consist_loss = nn.MSELoss()(low_R, gamma_R)
-    decom_tv_loss = L_TV()(low_L)
+    # decom_tv_loss = L_TV()(low_L)
     low_L0 = torch.max(x_low, dim=1, keepdim=True)[0]  # 保留批次和通道维度
     gamma_L0 = torch.max(x_gamma, dim=1, keepdim=True)[0]
     low_L0 = torch.clamp(low_L0, 0, 1.0)  # 约束范围
@@ -138,8 +148,8 @@ def compute_total_loss(x_low, low_R, low_L, gamma_R, gamma_L, x_gamma, enhance_L
 
     L_con = nn.MSELoss()(low_L0, low_L) + nn.MSELoss()(gamma_L0, gamma_L)
 
-    total_decom_loss = decom_recon_loss + 1 * decom_consist_loss + 0.01 * decom_tv_loss + 0.1 * r_gradient_loss + 0.1 * L_con
-    print(f'decom_recon_loss:{decom_recon_loss:.4f}, decom_consist_loss: {1*decom_consist_loss:.4f}, decom_tv_loss:{0.01 * decom_tv_loss:.4f}, L_con:{0.1 * L_con:.4f}, r_gradient_loss:{r_gradient_loss:.4f}')
+    total_decom_loss = 10*decom_recon_loss + 1 * decom_consist_loss + 0.01 * r_gradient_loss + 1 * L_con #+ 0.1 * decom_tv_loss
+    print(f'decom_recon_loss:{decom_recon_loss:.4f}, decom_consist_loss: {1*decom_consist_loss:.4f}, L_con:{1 * L_con:.4f}, r_gradient_loss:{0.01*r_gradient_loss:.4f}') #decom_tv_loss:{0.1 * decom_tv_loss:.4f},
 
     # 2. Noise2noise去噪损失（原始逻辑：带噪反射层→干净反射层）
     # denoise_loss = nn.MSELoss()(denoise_R, gt_R)
