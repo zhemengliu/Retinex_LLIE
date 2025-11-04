@@ -18,6 +18,9 @@ from skimage.metrics import peak_signal_noise_ratio as psnr
 import lpips
 from sys import platform
 from string import ascii_letters
+import os
+import argparse
+import time
 import datetime
 import matplotlib
 
@@ -59,14 +62,14 @@ def calculate_metrics(x_enhanced, x_normal, device="cuda"):
     return (ssim_sum / b, psnr_sum / b, lpips_sum / b)
 
 
-def visualize_modules(low_R, low_L, gamma_R, gamma_L, enhance_L, denoise_R, enhance_img, x_low, x_normal, filename,
+def visualize_modules(low_R, low_L, gamma_R, gamma_L, x_gamma, enhance_L, enhance_img, x_low, x_normal, filename,
                       save_dir="./visualization"):
     """优化版本：减少内存使用的模块级可视化"""
     import matplotlib.pyplot as plt
     import gc
     # 在tensor2np函数前加打印
-    print(f"low_R范围: {torch.min(low_R):.4f} ~ {torch.max(low_R):.4f}")
-    print(f"enhance_img范围: {torch.min(enhance_img):.4f} ~ {torch.max(enhance_img):.4f}")
+    # print(f"low_R范围: {torch.min(low_R):.4f} ~ {torch.max(low_R):.4f}")
+    # print(f"enhance_img范围: {torch.min(enhance_img):.4f} ~ {torch.max(enhance_img):.4f}")
     os.makedirs(save_dir, exist_ok=True)
 
     # tensor转numpy（0-1）- 添加内存优化
@@ -89,14 +92,14 @@ def visualize_modules(low_R, low_L, gamma_R, gamma_L, enhance_L, denoise_R, enha
         low_L_np = single2three(low_L)
         gamma_R_np = tensor2np(gamma_R)
         gamma_L_np = single2three(gamma_L)
-        denoise_R_np = tensor2np(denoise_R)
+        x_gamma_np = tensor2np(x_gamma)
         enhance_L_np = single2three(enhance_L)
         enhance_img_np = tensor2np(enhance_img)
         x_low_np = tensor2np(x_low)
         x_normal_np = tensor2np(x_normal)
 
         # 立即释放原始tensor引用
-        del low_R, low_L, gamma_R, gamma_L, denoise_R, enhance_L, enhance_img, x_low, x_normal
+        del low_R, low_L, gamma_R, gamma_L, x_gamma, enhance_L, enhance_img, x_low, x_normal
 
         # 绘制子图（减小尺寸和DPI）
         fig, axes = plt.subplots(3, 3, figsize=(12, 8))
@@ -113,7 +116,7 @@ def visualize_modules(low_R, low_L, gamma_R, gamma_L, enhance_L, denoise_R, enha
         axes[1].set_title("Reflectance Low", fontsize=9)
         axes[1].axis("off")
         axes[2].imshow(gamma_R_np)
-        axes[2].set_title("Reflectance gamma", fontsize=9)
+        axes[2].set_title("Reflectance Gamma", fontsize=9)
         axes[2].axis("off")
 
         # 3. Uretinex分解照明层
@@ -121,12 +124,12 @@ def visualize_modules(low_R, low_L, gamma_R, gamma_L, enhance_L, denoise_R, enha
         axes[3].set_title("Illumination Low", fontsize=9)
         axes[3].axis("off")
         axes[4].imshow(gamma_L_np)
-        axes[4].set_title("Illumination gamma", fontsize=9)
+        axes[4].set_title("Illumination Gamma", fontsize=9)
         axes[4].axis("off")
 
         # 4. Noise2noise去噪反射层
-        axes[5].imshow(denoise_R_np)
-        axes[5].set_title("Denoised Reflectance", fontsize=9)
+        axes[5].imshow(x_gamma_np)
+        axes[5].set_title("Gamma Correction", fontsize=9)
         axes[5].axis("off")
 
         # 5. Zero-DCE增强照明层
@@ -147,7 +150,7 @@ def visualize_modules(low_R, low_L, gamma_R, gamma_L, enhance_L, denoise_R, enha
         plt.savefig(save_path, dpi=100, bbox_inches="tight", pad_inches=0.1)
 
         # 释放numpy数组内存
-        del low_R_np, low_L_np, gamma_R_np, gamma_L_np, denoise_R_np, enhance_L_np, enhance_img_np, x_low_np, x_normal_np
+        del low_R_np, low_L_np, gamma_R_np, gamma_L_np, x_gamma_np, enhance_L_np, enhance_img_np, x_low_np, x_normal_np
 
     except Exception as e:
         print(f"可视化失败 {filename}: {e}")
@@ -174,7 +177,7 @@ def train(args, model, train_loader, test_loader, optimizer, scheduler, device, 
     # 调整epoch循环范围：从resume_epoch开始到args.epochs
     for epoch in range(resume_epoch, args.epochs):
         epoch_start = time.time()
-        total_loss, decom_loss, denoise_loss, illum_loss, recon_loss = 0.0, 0.0, 0.0, 0.0, 0.0
+        total_loss, decom_loss, illum_loss = 0.0, 0.0, 0.0
 
         for batch_idx, (name, x_low, x_normal) in enumerate(train_loader):
             # 数据移至设备
@@ -182,32 +185,30 @@ def train(args, model, train_loader, test_loader, optimizer, scheduler, device, 
             x_normal = x_normal.to(device)
 
             # 前向传播
-            low_R, low_L, gamma_R, gamma_L, enhance_L1, enhance_L, x_gamma, enhance_img = model(x_low, x_normal)
+            low_R, low_L, gamma_R, gamma_L, x_gamma, enhance_L, enhance_img = model(x_low)
+            # print("enhance_img 类型:", type(enhance_img))  # 应输出 <class 'torch.Tensor'>
 
             # 计算总损失
-            loss,  d_loss, i_loss= compute_total_loss(
-                x_low, x_normal, low_R, low_L, gamma_R, gamma_L, enhance_L1, enhance_L, x_gamma, enhance_img, args
+            loss, d_loss, i_loss = compute_total_loss(
+                x_low, low_R, low_L, gamma_R, gamma_L, x_gamma, enhance_L, enhance_img
             )
 
             # 反向传播
             optimizer.zero_grad()
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # 限制梯度L2范数不超过1.0
             optimizer.step()
 
             # 累加损失
             batch_size = x_low.size(0)
             total_loss += loss.item() * batch_size
             decom_loss += d_loss.item() * batch_size
-            # denoise_loss += n_loss.item() * batch_size
             illum_loss += i_loss.item() * batch_size
-            # recon_loss += r_loss.item() * batch_size
 
         # 平均损失
         avg_total = total_loss / len(train_loader.dataset)
         avg_d = decom_loss / len(train_loader.dataset)
-        # avg_n = denoise_loss / len(train_loader.dataset)
         avg_i = illum_loss / len(train_loader.dataset)
-        # avg_r = recon_loss / len(train_loader.dataset)
 
         # 学习率调度（基于当前epoch的损失）
         scheduler.step(avg_total)
@@ -255,8 +256,7 @@ def train(args, model, train_loader, test_loader, optimizer, scheduler, device, 
         # 打印日志（标注续训epoch）
         epoch_time = time.time() - epoch_start
         log_str = f"[续训] Epoch [{epoch + 1}/{args.epochs}] | Time: {epoch_time:.2f}s | " \
-                  f"Total Loss: {avg_total:.6f} | Decom Loss：{avg_d:.6f}|" \
-                  f"Illum Loss: {avg_i:.6f} |Best Loss: {best_loss:.6f}"
+                  f"Total Loss: {avg_total:.6f} | Decom Loss: {avg_d:.6f} | Illum Loss: {avg_i:.6f}"
         print(log_str)
 
         # 写入训练日志（追加模式，避免覆盖）
@@ -277,7 +277,16 @@ def train(args, model, train_loader, test_loader, optimizer, scheduler, device, 
                     print(f" Processing {idx + 1}/{num_samples}: {filename[0]}")
 
                     # 前向传播
-                    low_R, low_L, gamma_R, gamma_L, enhance_L1, enhance_L, x_gamma, enhance_img = model(x_low, x_normal)
+                    low_R, low_L, gamma_R, gamma_L, x_gamma, enhance_L, enhance_img = model(x_low)
+
+                    # 检查中间输出
+                    # print(f"分解输出 - low_R: [{low_R.min():.4f}, {low_R.max():.4f}]")
+                    # print(f"分解输出 - low_L: [{low_L.min():.4f}, {low_L.max():.4f}]")
+
+                    # 如果发现NaN，立即停止
+                    if torch.isnan(low_R).any():
+                        print("检测到NaN在low_R中！")
+                        break
 
                     # 计算指标
                     ssim_val, psnr_val, lpips_val = calculate_metrics(enhance_img, x_normal, device)
@@ -287,7 +296,7 @@ def train(args, model, train_loader, test_loader, optimizer, scheduler, device, 
 
                     # 模块可视化（修复参数顺序：原代码多传了enhance_L1，此处修正）
                     visualize_modules(
-                        low_R, low_L, gamma_R, gamma_L, enhance_L, x_gamma, enhance_img, x_low, x_normal,
+                        low_R, low_L, gamma_R, gamma_L, x_gamma, enhance_L, enhance_img, x_low, x_normal,
                         filename[0], save_dir=args.vis_dir
                     )
 
@@ -324,8 +333,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Low Light Enhancement (Uretinex+Noise2noise+Zero-DCE)")
     # 通用参数
     parser.add_argument("--epochs", type=int, default=100, help="总训练epoch数（原默认100）")
-    parser.add_argument("--batch_size", type=int, default=8, help="Batch size（原代码实际用4，此处统一）")
-    parser.add_argument("--lr", type=float, default=1e-4, help="初始学习率")
+    parser.add_argument("--batch_size", type=int, default=16, help="Batch size（原代码实际用4，此处统一）")
+    parser.add_argument("--lr", type=float, default=1e-5, help="初始学习率")
     parser.add_argument("--crop_size", type=int, default=64, help="Crop size")
     parser.add_argument("--gpu_id", type=int, default=0, help="GPU ID")
     parser.add_argument("--ckpt_dir", type=str, default="./ckpt", help="模型保存目录（需包含best_model.pth）")
@@ -335,16 +344,16 @@ if __name__ == "__main__":
     # parser.add_argument("--resume_epoch", type=int, default=1, help="续训起始epoch（从28开始）")
     parser.add_argument("--resume_ckpt", type=str, default="./ckpt/best_model.pth", help="续训模型路径")
     # Uretinex参数
-    parser.add_argument("--unfolding_round", type=int, default=5, help="Uretinex迭代轮次")
+    parser.add_argument("--unfolding_round", type=int, default=3, help="Uretinex迭代轮次")
     parser.add_argument("--gamma", type=float, default=0.1, help="P的正则化参数")
     parser.add_argument("--lamda", type=float, default=0.1, help="Q的正则化参数")
-    parser.add_argument("--Roffset", type=float, default=0.05, help="gamma增量")
-    parser.add_argument("--Loffset", type=float, default=0.05, help="lamda增量")
+    parser.add_argument("--Roffset", type=float, default=1.01, help="gamma增量")
+    parser.add_argument("--Loffset", type=float, default=1.01, help="lamda增量")
     parser.add_argument("--tv_weight", type=float, default=0.01, help="TV损失权重")
     parser.add_argument("--norm_layer", type=str, default="batch", help="归一化层类型")
     parser.add_argument("--concat_L", type=bool, default=False, help="是否拼接L到R")
     # Zero-DCE参数
-    parser.add_argument("--patch_size", type=int, default=8, help="L_exp patch size")
+    parser.add_argument("--patch_size", type=int, default=16, help="L_exp patch size")
     parser.add_argument("--mean_val", type=float, default=0.5, help="L_exp目标均值")
     # Noise2noise参数
     parser.add_argument("--noise_model", type=tuple, default=('gaussian', 50), help="噪声类型")
@@ -357,8 +366,7 @@ if __name__ == "__main__":
     print(f" Using device: {device}")
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
-    # new_root_dir = f"new_results_{timestamp}"  # 新根目录名称，可自定义前缀
-    new_root_dir = f"modify loss_L1 and not max illum"
+    new_root_dir = f"20251104"  # 新根目录名称，可自定义前缀
 
     # 定义新的子文件夹路径（模型权重+可视化结果）
     new_ckpt_dir = os.path.join(new_root_dir, "ckpt")  # 新模型保存目录
@@ -431,7 +439,7 @@ if __name__ == "__main__":
     )
 
     # 若开启续训，加载模型权重和调度器状态
-    resume_epoch = 1
+    resume_epoch = 0
     best_loss = float("inf") # 优先使用命令行传入的续训起始epoch
     if args.resume:
         if not os.path.exists(args.resume_ckpt):
