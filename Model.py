@@ -19,7 +19,7 @@ import lpips
 from sys import platform
 from string import ascii_letters
 import matplotlib.pyplot as plt
-from Decom_Model import IterativeUretinex, DecomNet_RTV
+from Decom_Model import  DecomNet #DecomNet_RTV,
 from Illum_Model import *
 # from Denoise_Model import *
 
@@ -111,8 +111,19 @@ class LLIE(nn.Module):
     def __init__(self, args):
         super().__init__()
         # self.decom_net = IterativeUretinex(args)
-        self.decom_net = DecomNet_RTV(in_ch=1, k1=10)
+        # self.decom_net = DecomNet_RTV(in_ch=1, k1=10)
+        self.decom_net = DecomNet(
+        unfolding_rounds=5,
+        init_channels=64,
+        gamma=0.05,
+        lamda=0.05,
+        gamma_offset=0.02,
+        lamda_offset=0.02
+    ).cuda()
         self.enhance_net = enhance_net_nopool()
+
+        # # 添加输出监控
+        # self.forward_count = 0
         # self.denoise_net = SRResnet(input_channels=3, output_channels=3)
 
     def gamma_correction(self, low_img):
@@ -133,19 +144,27 @@ class LLIE(nn.Module):
 
     def forward(self, low_img):
         # 确保输入在合理范围内
-        # low_img = torch.clamp(low_img, 0.0, 1.0)
+        low_img = torch.clamp(low_img, 0.0, 1.0)
+        # self.forward_count += 1
 
         low_L0 = torch.max(low_img, dim=1, keepdim=True)[0]  # 保留批次和通道维度
-        low_L = self.decom_net(low_L0)
+        low_L0 = torch.clamp(low_L0,0.0,1.0)
+        # print(f"[前向{self.forward_count}] low_L0范围: [{low_L0.min():.4f}, {low_L0.max():.4f}]")
+        low_R, low_L = self.decom_net(low_img)
         low_L = torch.clamp(low_L, 0.0, 1.0)
-        low_R = low_img / (low_L + 1e-3)
+        print(f"low_L范围: [{low_L.min():.4f}, {low_L.max():.4f}]")
+        # if low_L.std() < 1e-6:
+        #     print(f"警告: low_L几乎为常数: {low_L.mean().item():.6f} ± {low_L.std().item():.6f}")
+        # low_R = low_img / (low_L + 1e-3)
         low_R = torch.clamp(low_R, 0.0,1.0)
 
         x_gamma = self.gamma_correction(low_img)
+        x_gamma = torch.clamp(x_gamma,0.0,1.0)
         gamma_L0 = torch.max(x_gamma, dim=1, keepdim=True)[0]  # 保留批次和通道维度
-        gamma_L = self.decom_net(gamma_L0)
+        gamma_L0 = torch.clamp(gamma_L0,0.0,1.0)
+        gamma_R, gamma_L = self.decom_net(x_gamma)
         gamma_L = torch.clamp(gamma_L,0.0,1.0)
-        gamma_R = x_gamma / (gamma_L + 1e-3)
+        # gamma_R = x_gamma / (gamma_L + 1e-3)
         gamma_R = torch.clamp(gamma_R,0.0,1.0)
 
         # low_img_hsv = rgb_to_hsv(low_img)
@@ -194,6 +213,7 @@ class LLIE(nn.Module):
         # 照明增强
         # print(f"照明增强输入 low_L 形状: {low_L.shape}, 范围: [{low_L.min():.4f}, {low_L.max():.4f}]")
         enhance_L, _ = self.enhance_net(low_L)
+        enhance_L = torch.clamp(enhance_L,0.0,1.0)
         # enhance_L = torch.clamp(enhance_L, 0.0, 1.0)
         # print(f"照明增强输出 - enhance_L范围: [{enhance_L.min():.4f}, {enhance_L.max():.4f}]")
         # print(f"[调试] 增强后光照范围: {torch.min(enhance_L):.4f} ~ {torch.max(enhance_L):.4f}")

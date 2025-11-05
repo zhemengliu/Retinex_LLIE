@@ -159,6 +159,63 @@ def visualize_modules(low_R, low_L, gamma_R, gamma_L, x_gamma, enhance_L, enhanc
         gc.collect()
 
 
+def train_with_monitoring(args, model, train_loader, test_loader, optimizer, scheduler, device, resume_epoch=0):
+    model.train()
+
+    for epoch in range(resume_epoch, args.epochs):
+        for batch_idx, (name, x_low, x_normal) in enumerate(train_loader):
+            x_low = x_low.to(device)
+            x_normal = x_normal.to(device)
+
+            # 前向传播
+            low_R, low_L, gamma_R, gamma_L, x_gamma, enhance_L, enhance_img = model(x_low)
+
+            # 监控中间输出
+            monitor_tensors = {
+                'low_R': low_R, 'low_L': low_L,
+                'gamma_R': gamma_R, 'gamma_L': gamma_L,
+                'enhance_L': enhance_L, 'enhance_img': enhance_img
+            }
+
+            for tensor_name, tensor in monitor_tensors.items():
+                tensor_mean = tensor.mean().item()
+                tensor_std = tensor.std().item()
+                if tensor_std < 1e-6:  # 所有值几乎相同
+                    print(f"警告: {tensor_name} 标准差过小: {tensor_std:.6f}")
+
+            # 计算损失
+            loss, d_loss, i_loss = compute_total_loss(
+                x_low, low_R, low_L, gamma_R, gamma_L, x_gamma, enhance_L, enhance_img
+            )
+
+            # 检查损失是否为0
+            if loss.item() == 0:
+                print("=== 损失为0的详细分析 ===")
+                print(f"Batch {batch_idx}, 输入形状: {x_low.shape}")
+
+                # 检查模型输出是否全部相同
+                for tensor_name, tensor in monitor_tensors.items():
+                    unique_vals = torch.unique(tensor).numel()
+                    print(f"{tensor_name}: 唯一值数量 = {unique_vals}")
+
+                # 检查梯度
+                optimizer.zero_grad()
+                loss.backward()
+
+                total_grad_norm = 0
+                for name, param in model.named_parameters():
+                    if param.grad is not None:
+                        grad_norm = param.grad.norm().item()
+                        total_grad_norm += grad_norm
+                        if grad_norm == 0:
+                            print(f"零梯度: {name}")
+
+                print(f"总梯度范数: {total_grad_norm:.6f}")
+
+                if total_grad_norm == 0:
+                    print("所有梯度都为0，模型停止学习!")
+                    return  # 提前终止训练
+
 def train(args, model, train_loader, test_loader, optimizer, scheduler, device, resume_epoch=0):
     """端到端训练（支持断点续训）"""
     model.train()
@@ -334,7 +391,7 @@ if __name__ == "__main__":
     # 通用参数
     parser.add_argument("--epochs", type=int, default=100, help="总训练epoch数（原默认100）")
     parser.add_argument("--batch_size", type=int, default=16, help="Batch size（原代码实际用4，此处统一）")
-    parser.add_argument("--lr", type=float, default=1e-5, help="初始学习率")
+    parser.add_argument("--lr", type=float, default=1e-4, help="初始学习率")
     parser.add_argument("--crop_size", type=int, default=64, help="Crop size")
     parser.add_argument("--gpu_id", type=int, default=0, help="GPU ID")
     parser.add_argument("--ckpt_dir", type=str, default="./ckpt", help="模型保存目录（需包含best_model.pth）")

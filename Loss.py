@@ -40,17 +40,26 @@ class L_spa(nn.Module):
     def forward(self, org, enhance):
         """原始损失计算逻辑，未修改"""
         b, c, h, w = org.shape
+
+        # 添加数值稳定性
+        org = torch.clamp(org, 0.0, 1.0)
+        enhance = torch.clamp(enhance, 0.0, 1.0)
+
         org_mean = torch.mean(org, 1, keepdim=True)
         enhance_mean = torch.mean(enhance, 1, keepdim=True)
         org_pool = self.pool(org_mean)
         enhance_pool = self.pool(enhance_mean)
-        # 原始权重计算，未修改
-        weight_diff = torch.max(
+
+        # 改进权重计算，增加数值稳定性
+        weight_diff = torch.clamp(
             torch.FloatTensor([1]).cuda() + 10000 * torch.min(org_pool - torch.FloatTensor([0.3]).cuda(),
                                                               torch.FloatTensor([0]).cuda()),
-            torch.FloatTensor([0.5]).cuda())
+            min=0.1, max=10.0  # 限制权重范围
+        )
+
         E_1 = torch.mul(torch.sign(enhance_pool - torch.FloatTensor([0.5]).cuda()), enhance_pool - org_pool)
-        # 原始梯度差计算，未修改
+
+        # 梯度计算
         D_org_left = F.conv2d(org_pool, self.weight_left, padding=1)
         D_org_right = F.conv2d(org_pool, self.weight_right, padding=1)
         D_org_up = F.conv2d(org_pool, self.weight_up, padding=1)
@@ -59,13 +68,15 @@ class L_spa(nn.Module):
         D_enhance_right = F.conv2d(enhance_pool, self.weight_right, padding=1)
         D_enhance_up = F.conv2d(enhance_pool, self.weight_up, padding=1)
         D_enhance_down = F.conv2d(enhance_pool, self.weight_down, padding=1)
-        # 原始损失求和，未修改
-        D_left = torch.pow(D_org_left - D_enhance_left, 2)
-        D_right = torch.pow(D_org_right - D_enhance_right, 2)
-        D_up = torch.pow(D_org_up - D_enhance_up, 2)
-        D_down = torch.pow(D_org_down - D_enhance_down, 2)
+
+        # 梯度差计算，增加稳定性
+        D_left = torch.pow(torch.clamp(D_org_left - D_enhance_left, -10, 10), 2)
+        D_right = torch.pow(torch.clamp(D_org_right - D_enhance_right, -10, 10), 2)
+        D_up = torch.pow(torch.clamp(D_org_up - D_enhance_up, -10, 10), 2)
+        D_down = torch.pow(torch.clamp(D_org_down - D_enhance_down, -10, 10), 2)
+
         E = torch.mean(D_left + D_right + D_up + D_down)
-        return E
+        return torch.clamp(E, 0.0, 1.0)  # 限制损失范围
 
 
 class L_exp(nn.Module):
@@ -121,113 +132,44 @@ class L_TV(nn.Module):
 
 
 def compute_total_loss(x_low, low_R, low_L, gamma_R, gamma_L, x_gamma, enhance_L, enhance_img):
-    """总损失：Uretinex分解损失+Noise2noise去噪损失+Zero-DCE照明损失+重建损失"""
-    # 添加数值稳定性
-    # epsilon = 1e-8
-    # 1. Uretinex分解损失（原始逻辑）
-    # 分解保真损失：x_low ≈ R*L
-    decom_recon_loss = nn.MSELoss()(low_R * low_L, x_low) + nn.MSELoss()(gamma_R * gamma_L, x_gamma)
-    r_gradient_loss  = L_spa()(low_R, x_low) + L_spa()(gamma_R, x_gamma)
-    r_gradient_loss = torch.clamp(r_gradient_loss, 0, 10.0) # 防止梯度爆炸
-    decom_consist_loss = nn.MSELoss()(low_R, gamma_R)
-    decom_tv_loss = L_TV()(low_L)
-    low_L0 = torch.max(x_low, dim=1, keepdim=True)[0]  # 保留批次和通道维度
-    gamma_L0 = torch.max(x_gamma, dim=1, keepdim=True)[0]
-    low_L0 = torch.clamp(low_L0, 0, 1.0)  # 约束范围
-    gamma_L0 = torch.clamp(gamma_L0, 0, 1.0)
+    """改进的总损失函数，平衡各项损失"""
 
+    # 1. 分解重建损失 - 降低权重
+    decom_recon_loss = nn.MSELoss()(low_R * low_L, x_low) + nn.MSELoss()(gamma_R * gamma_L, x_gamma)
+
+    # 2. 反射层一致性损失 - 保持
+    decom_consist_loss = nn.MSELoss()(low_R, gamma_R)
+
+    # 3. 光照一致性损失 - 改进计算方式
+    low_L0 = torch.max(x_low, dim=1, keepdim=True)[0]
+    gamma_L0 = torch.max(x_gamma, dim=1, keepdim=True)[0]
     L_con = nn.MSELoss()(low_L0, low_L) + nn.MSELoss()(gamma_L0, gamma_L)
 
-    total_decom_loss = decom_recon_loss + 1 * decom_consist_loss + 0.01 * decom_tv_loss + 0.1 * r_gradient_loss + 0.1 * L_con
-    print(f'decom_recon_loss:{decom_recon_loss:.4f}, decom_consist_loss: {1*decom_consist_loss:.4f}, decom_tv_loss:{0.01 * decom_tv_loss:.4f}, L_con:{0.1 * L_con:.4f}, r_gradient_loss:{r_gradient_loss:.4f}')
+    # 4. 梯度损失 - 增强纹理保持
+    r_gradient_loss = L_spa()(low_R, x_low) + L_spa()(gamma_R, x_gamma)
 
-    # 2. Noise2noise去噪损失（原始逻辑：带噪反射层→干净反射层）
-    # denoise_loss = nn.MSELoss()(denoise_R, gt_R)
-    # 3. Zero-DCE照明增强损失（原始逻辑）
-    # L_normal = torch.mean(x_normal, dim=1, keepdim=True)  # 正常光照明层标签
+    # # 5. 新增：反射层纹理损失
+    # texture_loss = torch.mean(torch.abs(F.conv2d(low_R, torch.ones(1, 1, 3, 3).to(low_R.device) / 9) - low_R))
 
-    # spa_loss = torch.mean(L_spa()(L_normal, enhance_L1))
-    # color_loss = L_color()(enhance_L)  # 扩3通道算颜色损失#######################改enhance_low为enhance_img
-    # tv_loss = L_TV()(enhance_img)
+    # 平衡的分解损失权重
+    total_decom_loss = (
+            0.1 * decom_recon_loss +  # 降低重建损失权重
+            5.0 * decom_consist_loss +  # 保持一致性
+            0.02 * L_con +  # 降低光照一致性权重
+            0.2 * r_gradient_loss # 保持梯度损失
+            # 0.1 * texture_loss  # 新增纹理损失
+    )
+
+    print(f'decom_recon_loss:{0.1 * decom_recon_loss:.4f}, decom_consist_loss: {5.0 * decom_consist_loss:.4f}, '
+          f'L_con:{0.02 * L_con:.4f}, r_gradient_loss:{0.2 * r_gradient_loss:.4f}')#, texture_loss:{0.1 * texture_loss:.4f}
+
+    # 6. 照明增强损失 - 提高权重
     exp_loss = L_exp(patch_size=16, mean_val=0.6)(enhance_L)
-    # exp_loss_L = L_exp(patch_size=16, mean_val=0.6)(enhance_L)
+    color_loss = L_color()(enhance_img)  # 对最终增强图像计算颜色损失
 
-    total_illum_loss = exp_loss  #+ 0.01 * tv_loss #+ exp_loss_L+ 0.3 * color_loss
+    total_illum_loss = 0.5 * exp_loss + 0.1 * color_loss
 
-    # 总损失（关键修改：确保所有损失项都是标量，并最终求和为标量）
-    total_loss = total_decom_loss + total_illum_loss
-
-    # 最终数值检查
-    if torch.isnan(total_loss).any() or torch.isinf(total_loss).any():
-        print("警告：检测到NaN/Inf损失，使用备用损失")
-        # 使用简单的重建损失作为备用
-        total_loss = nn.MSELoss()(enhance_img, x_low)
-        total_decom_loss = total_loss * 0.5
-        total_illum_loss = total_loss * 0.5
-
-    # 强制确保 total_loss 是标量（添加均值操作，针对可能的维度残留）
-    if total_loss.dim() > 0:
-        total_loss = total_loss.mean()
+    # 7. 最终总损失 - 重新平衡
+    total_loss = 0.2 * total_decom_loss + 0.8 * total_illum_loss
 
     return total_loss, total_decom_loss, total_illum_loss
-
-# def compute_total_loss(x_low, x_normal, low_R, low_L, gt_R, gt_L, enhance_L1, enhance_L, denoise_R, enhance_img,
-#                        uretinex_opts):
-#     """修复：添加数据范围检查和处理"""
-#
-#     # 修复1：确保所有输入在合理范围内
-#     x_low = torch.clamp(x_low, 0.0, 1.0)
-#     x_normal = torch.clamp(x_normal, 0.0, 1.0)
-#     low_R = torch.clamp(low_R, 0.0, 1.0)
-#     low_L = torch.clamp(low_L, 0.0, 1.0)
-#     gt_R = torch.clamp(gt_R, 0.0, 1.0)
-#     gt_L = torch.clamp(gt_L, 0.0, 1.0)
-#     enhance_L1 = torch.clamp(enhance_L1, 0.0, 1.0)
-#     enhance_L = torch.clamp(enhance_L, 0.0, 1.0)
-#     denoise_R = torch.clamp(denoise_R, 0.0, 1.0)
-#     enhance_img = torch.clamp(enhance_img, 0.0, 1.0)
-#
-#     # 修复2：添加数值稳定性处理
-#     epsilon = 1e-8
-#
-#     # 1. Uretinex分解损失
-#     decom_recon_loss = nn.MSELoss()(low_R * low_L + epsilon, x_low + epsilon) + \
-#                        nn.MSELoss()(gt_R * gt_L + epsilon, x_normal + epsilon)
-#
-#     decom_consist_loss = nn.MSELoss()(low_R + epsilon, gt_R + epsilon)
-#     decom_tv_loss = L_TV()(low_L) * uretinex_opts.tv_weight
-#     total_decom_loss = decom_recon_loss + 0.5 * decom_consist_loss + decom_tv_loss
-#
-#     # 2. Noise2noise去噪损失
-#     denoise_loss = nn.MSELoss()(denoise_R + epsilon, gt_R + epsilon)
-#
-#     # 3. Zero-DCE照明增强损失
-#     L_normal = torch.mean(x_normal, dim=1, keepdim=True)
-#     # 修复：确保照明层在合理范围内
-#     L_normal = torch.clamp(L_normal, 0.0, 1.0)
-#     enhance_L1 = torch.clamp(enhance_L1, 0.0, 1.0)
-#
-#     exp_loss = L_exp(patch_size=16, mean_val=0.5)(enhance_L1)
-#     spa_loss = torch.mean(L_spa()(L_normal, enhance_L1))
-#     color_loss = L_color()(enhance_L)
-#     tv_loss = L_TV()(enhance_L1)
-#     total_illum_loss = exp_loss + 0.01 * spa_loss + 0.01 * color_loss + 0.01 * tv_loss
-#
-#     # 4. 最终重建损失
-#     recon_final_loss = nn.L1Loss()(enhance_img + epsilon, x_normal + epsilon)
-#
-#     # 总损失计算
-#     total_loss = (0.2 * total_decom_loss + 0.2 * denoise_loss +
-#                   0.3 * total_illum_loss + 0.3 * recon_final_loss)
-#
-#     # 修复：检查损失是否为NaN
-#     if torch.isnan(total_loss).any():
-#         print("警告：检测到NaN损失，使用备用损失")
-#         # 使用简单的L1损失作为备用
-#         total_loss = nn.L1Loss()(enhance_img, x_normal)
-#         total_decom_loss = torch.tensor(0.0).to(total_loss.device)
-#         denoise_loss = torch.tensor(0.0).to(total_loss.device)
-#         total_illum_loss = torch.tensor(0.0).to(total_loss.device)
-#         recon_final_loss = total_loss
-#
-#     return total_loss, total_decom_loss, denoise_loss, total_illum_loss, recon_final_loss
