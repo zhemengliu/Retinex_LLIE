@@ -282,8 +282,9 @@ class HyPaNet(nn.Module):
             nn.Softplus())
 
     def forward(self, x):
-        x = self.mlp(x) + 1
-        return x
+        x = self.mlp(x)
+        x = torch.sigmoid(x)
+        return x*0.1 + 1
 
 
 class HyParNet(nn.Module):
@@ -295,8 +296,9 @@ class HyParNet(nn.Module):
             nn.Sigmoid())
 
     def forward(self, x):
-        x = self.mlp(x) + 0.001
-        return x
+        x = self.mlp(x)
+        x = torch.sigmoid(x)
+        return x + 0.01
 
 def grad(x):
     grd_x = torch.diff(x, dim=3)

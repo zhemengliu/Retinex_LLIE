@@ -237,7 +237,7 @@ def train(args, model, train_loader, test_loader, optimizer, scheduler, device, 
         # print(log_str)
 
         # -------------------------- 2. 新增：每隔10个epoch定期保存模型 --------------------------
-        if (epoch + 1) % 10 == 0:  # epoch+1是1-based，确保第10、20、30...epoch保存
+        if (epoch + 1) % 1 == 0:  # epoch+1是1-based，确保第10、20、30...epoch保存
             os.makedirs(args.ckpt_dir, exist_ok=True)
             # 定期保存字典：包含模型、优化器、调度器状态（支持从该模型续训）
             periodic_save_dict = {
@@ -332,9 +332,9 @@ if __name__ == "__main__":
     # 命令行参数（新增续训相关参数）
     parser = argparse.ArgumentParser(description="Low Light Enhancement (Uretinex+Noise2noise+Zero-DCE)")
     # 通用参数
-    parser.add_argument("--epochs", type=int, default=100, help="总训练epoch数（原默认100）")
+    parser.add_argument("--epochs", type=int, default=10, help="总训练epoch数（原默认100）")
     parser.add_argument("--batch_size", type=int, default=16, help="Batch size（原代码实际用4，此处统一）")
-    parser.add_argument("--lr", type=float, default=1e-5, help="初始学习率")
+    parser.add_argument("--lr", type=float, default=5e-5, help="初始学习率")
     parser.add_argument("--crop_size", type=int, default=64, help="Crop size")
     parser.add_argument("--gpu_id", type=int, default=0, help="GPU ID")
     parser.add_argument("--ckpt_dir", type=str, default="./ckpt", help="模型保存目录（需包含best_model.pth）")
@@ -342,14 +342,14 @@ if __name__ == "__main__":
     # 续训关键参数
     parser.add_argument("--resume", action="store_true", help="是否开启断点续训")
     # parser.add_argument("--resume_epoch", type=int, default=1, help="续训起始epoch（从28开始）")
-    parser.add_argument("--resume_ckpt", type=str, default="./ckpt/best_model.pth", help="续训模型路径")
+    parser.add_argument("--resume_ckpt", type=str, default = None)# "./ckpt/model_epoch_5.pth", help="续训模型路径")
     # Uretinex参数
     parser.add_argument("--unfolding_round", type=int, default=3, help="Uretinex迭代轮次")
-    parser.add_argument("--gamma", type=float, default=0.1, help="P的正则化参数")
-    parser.add_argument("--lamda", type=float, default=0.1, help="Q的正则化参数")
+    parser.add_argument("--gamma", type=float, default=1.0, help="P的正则化参数")
+    parser.add_argument("--lamda", type=float, default=1.0, help="Q的正则化参数")
     parser.add_argument("--Roffset", type=float, default=1.01, help="gamma增量")
     parser.add_argument("--Loffset", type=float, default=1.01, help="lamda增量")
-    parser.add_argument("--tv_weight", type=float, default=0.01, help="TV损失权重")
+    parser.add_argument("--tv_weight", type=float, default=0.1, help="TV损失权重")
     parser.add_argument("--norm_layer", type=str, default="batch", help="归一化层类型")
     parser.add_argument("--concat_L", type=bool, default=False, help="是否拼接L到R")
     # Zero-DCE参数
@@ -366,7 +366,7 @@ if __name__ == "__main__":
     print(f" Using device: {device}")
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
-    new_root_dir = f"20251104"  # 新根目录名称，可自定义前缀
+    new_root_dir = f"20251106"  # 新根目录名称，可自定义前缀
 
     # 定义新的子文件夹路径（模型权重+可视化结果）
     new_ckpt_dir = os.path.join(new_root_dir, "ckpt")  # 新模型保存目录
