@@ -159,6 +159,63 @@ def visualize_modules(low_R, low_L, gamma_R, gamma_L, x_gamma, enhance_L, enhanc
         gc.collect()
 
 
+def train_with_monitoring(args, model, train_loader, test_loader, optimizer, scheduler, device, resume_epoch=0):
+    model.train()
+
+    for epoch in range(resume_epoch, args.epochs):
+        for batch_idx, (name, x_low, x_normal) in enumerate(train_loader):
+            x_low = x_low.to(device)
+            x_normal = x_normal.to(device)
+
+            # 前向传播
+            low_R, low_L, gamma_R, gamma_L, x_gamma, enhance_L, enhance_img = model(x_low)
+
+            # 监控中间输出
+            monitor_tensors = {
+                'low_R': low_R, 'low_L': low_L,
+                'gamma_R': gamma_R, 'gamma_L': gamma_L,
+                'enhance_L': enhance_L, 'enhance_img': enhance_img
+            }
+
+            for tensor_name, tensor in monitor_tensors.items():
+                tensor_mean = tensor.mean().item()
+                tensor_std = tensor.std().item()
+                if tensor_std < 1e-6:  # 所有值几乎相同
+                    print(f"警告: {tensor_name} 标准差过小: {tensor_std:.6f}")
+
+            # 计算损失
+            loss, d_loss, i_loss = compute_total_loss(
+                x_low, low_R, low_L, gamma_R, gamma_L, x_gamma, enhance_L, enhance_img
+            )
+
+            # 检查损失是否为0
+            if loss.item() == 0:
+                print("=== 损失为0的详细分析 ===")
+                print(f"Batch {batch_idx}, 输入形状: {x_low.shape}")
+
+                # 检查模型输出是否全部相同
+                for tensor_name, tensor in monitor_tensors.items():
+                    unique_vals = torch.unique(tensor).numel()
+                    print(f"{tensor_name}: 唯一值数量 = {unique_vals}")
+
+                # 检查梯度
+                optimizer.zero_grad()
+                loss.backward()
+
+                total_grad_norm = 0
+                for name, param in model.named_parameters():
+                    if param.grad is not None:
+                        grad_norm = param.grad.norm().item()
+                        total_grad_norm += grad_norm
+                        if grad_norm == 0:
+                            print(f"零梯度: {name}")
+
+                print(f"总梯度范数: {total_grad_norm:.6f}")
+
+                if total_grad_norm == 0:
+                    print("所有梯度都为0，模型停止学习!")
+                    return  # 提前终止训练
+
 def train(args, model, train_loader, test_loader, optimizer, scheduler, device, resume_epoch=0):
     """端到端训练（支持断点续训）"""
     model.train()
@@ -237,7 +294,7 @@ def train(args, model, train_loader, test_loader, optimizer, scheduler, device, 
         # print(log_str)
 
         # -------------------------- 2. 新增：每隔10个epoch定期保存模型 --------------------------
-        if (epoch + 1) % 1 == 0:  # epoch+1是1-based，确保第10、20、30...epoch保存
+        if (epoch + 1) % 10 == 0:  # epoch+1是1-based，确保第10、20、30...epoch保存
             os.makedirs(args.ckpt_dir, exist_ok=True)
             # 定期保存字典：包含模型、优化器、调度器状态（支持从该模型续训）
             periodic_save_dict = {
@@ -332,9 +389,9 @@ if __name__ == "__main__":
     # 命令行参数（新增续训相关参数）
     parser = argparse.ArgumentParser(description="Low Light Enhancement (Uretinex+Noise2noise+Zero-DCE)")
     # 通用参数
-    parser.add_argument("--epochs", type=int, default=10, help="总训练epoch数（原默认100）")
+    parser.add_argument("--epochs", type=int, default=100, help="总训练epoch数（原默认100）")
     parser.add_argument("--batch_size", type=int, default=16, help="Batch size（原代码实际用4，此处统一）")
-    parser.add_argument("--lr", type=float, default=5e-5, help="初始学习率")
+    parser.add_argument("--lr", type=float, default=1e-4, help="初始学习率")
     parser.add_argument("--crop_size", type=int, default=64, help="Crop size")
     parser.add_argument("--gpu_id", type=int, default=0, help="GPU ID")
     parser.add_argument("--ckpt_dir", type=str, default="./ckpt", help="模型保存目录（需包含best_model.pth）")
@@ -342,14 +399,14 @@ if __name__ == "__main__":
     # 续训关键参数
     parser.add_argument("--resume", action="store_true", help="是否开启断点续训")
     # parser.add_argument("--resume_epoch", type=int, default=1, help="续训起始epoch（从28开始）")
-    parser.add_argument("--resume_ckpt", type=str, default = "./ckpt/model_epoch_5.pth", help="续训模型路径")#=None)
+    parser.add_argument("--resume_ckpt", type=str, default="./ckpt/best_model.pth", help="续训模型路径")
     # Uretinex参数
     parser.add_argument("--unfolding_round", type=int, default=3, help="Uretinex迭代轮次")
-    parser.add_argument("--gamma", type=float, default=1.0, help="P的正则化参数")
-    parser.add_argument("--lamda", type=float, default=1.0, help="Q的正则化参数")
+    parser.add_argument("--gamma", type=float, default=0.1, help="P的正则化参数")
+    parser.add_argument("--lamda", type=float, default=0.1, help="Q的正则化参数")
     parser.add_argument("--Roffset", type=float, default=1.01, help="gamma增量")
     parser.add_argument("--Loffset", type=float, default=1.01, help="lamda增量")
-    parser.add_argument("--tv_weight", type=float, default=0.1, help="TV损失权重")
+    parser.add_argument("--tv_weight", type=float, default=0.01, help="TV损失权重")
     parser.add_argument("--norm_layer", type=str, default="batch", help="归一化层类型")
     parser.add_argument("--concat_L", type=bool, default=False, help="是否拼接L到R")
     # Zero-DCE参数
@@ -366,7 +423,7 @@ if __name__ == "__main__":
     print(f" Using device: {device}")
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
-    new_root_dir = f"20251106"  # 新根目录名称，可自定义前缀
+    new_root_dir = f"20251104"  # 新根目录名称，可自定义前缀
 
     # 定义新的子文件夹路径（模型权重+可视化结果）
     new_ckpt_dir = os.path.join(new_root_dir, "ckpt")  # 新模型保存目录
@@ -429,7 +486,7 @@ if __name__ == "__main__":
     print(f" Train samples: {len(train_loader.dataset)}, Test samples: {len(test_loader.dataset)}")
 
     # 4. 模型初始化 + 续训加载（核心步骤）
-    model = LLIE(args).to(device)
+    model = LLIE().to(device)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     scheduler = lr_scheduler.ReduceLROnPlateau(
         optimizer,

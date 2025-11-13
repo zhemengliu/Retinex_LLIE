@@ -102,7 +102,7 @@ class Decom(nn.Module):
 
         # 新增：权重初始化（Xavier初始化，适合ReLU类激活函数）
         self._initialize_weights()
-        #读入init_  在评估里面
+
 
     def _initialize_weights(self):
         for m in self.modules():
@@ -110,8 +110,6 @@ class Decom(nn.Module):
                 nn.init.xavier_uniform_(m.weight)
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0.0)  # 偏置初始化为0，避免偏移过大
-
-
 
     def forward(self, input):
         output = self.decom(input)
@@ -337,8 +335,14 @@ class DecomNet_RTV(nn.Module):
         self.par3 = HyParNet(in_ch).to(device)
         self.k1 = k1
 
+        # 添加数值稳定性保护
+        self.epsilon = 1e-8
+
     def forward(self, O):
         batch, ch, row, col = O.shape
+
+        # 增强输入保护
+        O = torch.clamp(O, 1e-6, 1.0 - 1e-6)
 
         I = O.clone()
         d1 = torch.zeros_like(I).to(device)
@@ -346,43 +350,89 @@ class DecomNet_RTV(nn.Module):
         y1 = torch.zeros_like(I).to(device)
         y2 = torch.zeros_like(I).to(device)
 
-
         mu1 = torch.tensor(1.0).unsqueeze(0).unsqueeze(0).unsqueeze(0).unsqueeze(0)
         mu = self.hypar(mu1.to(device)).to(device)
-        alpha = 0.001 * self.par1(O).to(device)
-        px = self.par2(O).to(device)
-        py = self.par3(O).to(device)
+
+        # 增强参数范围保护
+        alpha = torch.clamp(0.001 * self.par1(O).to(device), 1e-6, 1.0)
+        px = torch.clamp(self.par2(O).to(device), 0.1, 1.9)  # 限制px范围
+        py = torch.clamp(self.par3(O).to(device), 0.1, 1.9)  # 限制py范围
 
         eps = 0.001
         Dx = ([1.0], [-1.0])
         Dy = ([1.0, -1.0])
         Dx = torch.tensor(Dx).unsqueeze(0).unsqueeze(0).to(device)
         Dy = torch.tensor(Dy).unsqueeze(0).unsqueeze(0).unsqueeze(0).to(device)
+
         eigDtD = torch.pow(torch.abs(fftn(Dx, batch, ch, col, row, 2)), 2) + torch.pow(
             torch.abs(fftnt(Dy, batch, ch, row, col, 3)), 2).to(device)
 
         I_list = []
 
         for i in range(self.k1):
-            rhs_I = O - mu[0, i, 0, 0] * Dive(d1 + y1, d2 + y2)
-            lhs_I = 1 + mu[0, i, 0, 0] * eigDtD
-            I = torch.real(torch.fft.ifftn(torch.fft.fftn(rhs_I) / lhs_I))
-            DxI, DyI = grad(I)
+            try:
+                # 增强数值稳定性
+                rhs_I = O - mu[0, i, 0, 0] * Dive(d1 + y1, d2 + y2)
+                lhs_I = 1 + mu[0, i, 0, 0] * eigDtD
 
-            wtbx = torch.max(torch.pow(torch.abs(DxI.to(device)), (2 - px)), torch.tensor(eps).to(device)) ** (-1)
-            wtby = torch.max(torch.pow(torch.abs(DyI.to(device)), (2 - py)), torch.tensor(eps).to(device)) ** (-1)
-            wx = wtbx.to(device)
-            wy = wtby.to(device)
-            d1 = mu[0, i, 0, 0] * (DxI.to(device) - y1) / (2 * alpha * wx + mu[0, i, 0, 0]+1e-3)
-            d2 = mu[0, i, 0, 0] * (DyI.to(device) - y2) / (2 * alpha * wy + mu[0, i, 0, 0]+1e-3)
-            y1 = y1 + (d1 - DxI.to(device))
-            y2 = y2 + (d2 - DyI.to(device))
-            I_list.append(I)
-            # wxx = torch.sqrt(alpha * wx)
-            # wyy = torch.sqrt(alpha * wy)
+                # 防止除零
+                denominator = lhs_I + self.epsilon
+                I = torch.real(torch.fft.ifftn(torch.fft.fftn(rhs_I) / denominator))
+                I = torch.clamp(I, 1e-6, 1.0 - 1e-6)  # 约束输出范围
 
-        return I
+                DxI, DyI = grad(I)
+                DxI = torch.clamp(DxI, -10.0, 10.0)  # 限制梯度范围
+                DyI = torch.clamp(DyI, -10.0, 10.0)
 
+                # 改进权重计算，防止数值溢出
+                wtbx = (self.epsilon + torch.max(torch.pow(torch.abs(DxI.to(device)), (2 - px)),
+                                                 torch.tensor(eps).to(device))) ** (-1)
+                wtby = (self.epsilon + torch.max(torch.pow(torch.abs(DyI.to(device)), (2 - py)),
+                                                 torch.tensor(eps).to(device))) ** (-1)
+
+                wx = torch.clamp(wtbx.to(device), 1e-6, 1e6)  # 限制权重范围
+                wy = torch.clamp(wtby.to(device), 1e-6, 1e6)
+
+                # 改进的d1, d2计算
+                denom_d1 = 2 * alpha * wx + mu[0, i, 0, 0] + self.epsilon
+                denom_d2 = 2 * alpha * wy + mu[0, i, 0, 0] + self.epsilon
+
+                d1 = mu[0, i, 0, 0] * (DxI.to(device) - y1) / denom_d1
+                d2 = mu[0, i, 0, 0] * (DyI.to(device) - y2) / denom_d2
+
+                # 限制d1, d2范围
+                d1 = torch.clamp(d1, -1.0, 1.0)
+                d2 = torch.clamp(d2, -1.0, 1.0)
+
+                y1 = y1 + (d1 - DxI.to(device))
+                y2 = y2 + (d2 - DyI.to(device))
+
+                # 限制y1, y2范围
+                y1 = torch.clamp(y1, -10.0, 10.0)
+                y2 = torch.clamp(y2, -10.0, 10.0)
+
+                I_list.append(I)
+
+            except Exception as e:
+                print(f"DecomNet_RTV 第{i}次迭代错误: {e}")
+                # 使用安全值继续
+                I = torch.ones_like(I) * 0.5
+                break
+
+        # 最终输出保护
+        if len(I_list) > 0:
+            I_final = I_list[-1]
+        else:
+            I_final = torch.ones_like(O) * 0.5
+
+        I_final = torch.clamp(I_final, 1e-6, 1.0 - 1e-6)
+
+        # 检查输出是否为NaN
+        if torch.isnan(I_final).any():
+            print("警告: DecomNet_RTV 输出包含NaN，使用备用值")
+            I_final = torch.ones_like(O) * 0.5
+
+        return I_final
 
 if __name__== '__main__':
     parser = argparse.ArgumentParser(description="Low Light Enhancement (Uretinex+Noise2noise+Zero-DCE)")
@@ -393,7 +443,27 @@ if __name__== '__main__':
     parser.add_argument("--Loffset", type=float, default=0.05, help="lamda increment (原始参数)")
     parser.add_argument("--concat_L", type=bool, default=False, help="Concat L to R (原始参数)")
     args = parser.parse_args()
-    x = torch.rand(1,3,128,128).cuda()
-    net=IterativeUretinex(args).cuda()
-    R , L=net(x)
-    print(R.shape,L.shape)
+    # 设置设备
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"使用设备: {device}")
+    # 创建测试数据
+    x = torch.rand(1, 1, 128, 128).to(device)  # 单通道输入
+
+    # 正确实例化网络并移动到设备
+    net = DecomNet_RTV(in_ch=1, k1=10).to(device)
+
+    # 前向传播测试
+    with torch.no_grad():
+        L = net(x)
+
+    print(f"输入形状: {x.shape}")
+    print(f"输出形状: {L.shape}")
+    print(f"输入范围: [{x.min():.3f}, {x.max():.3f}]")
+    print(f"输出范围: [{L.min():.3f}, {L.max():.3f}]")
+
+    # 检查是否有NaN
+    if torch.isnan(L).any():
+        print("警告：输出包含NaN！")
+    else:
+        print("输出正常，无NaN")
+

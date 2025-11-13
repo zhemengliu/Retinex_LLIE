@@ -50,7 +50,7 @@ class enhance_net_nopool(nn.Module):
         x5 = self.relu(self.e_conv5(torch.cat([x3, x4], 1)))
         x6 = self.relu(self.e_conv6(torch.cat([x2, x5], 1)))
         x_r = F.tanh(self.e_conv7(torch.cat([x1, x6], 1)))  # 8通道输出
-        x_r = torch.clamp(x_r, -1.0, 1.0)
+        x_r = torch.clamp(x_r, 0, 1.0)
         # 原始8轮迭代增强，未修改
         r1, r2, r3, r4, r5, r6, r7, r8 = torch.split(x_r, 1, dim=1)
         x = x + r1 * (torch.pow(x, 2) - x)
@@ -71,5 +71,5 @@ class enhance_net_nopool(nn.Module):
 if __name__== '__main__':
     x = torch.rand(1,1,128,128).cuda()
     net=enhance_net_nopool().cuda()
-    enhance_image_1, enhance_image, r=net(x)
-    print(enhance_image_1.shape, enhance_image.shape, r.shape)
+    enhance_image, r=net(x)
+    print(enhance_image.shape, r.shape)
