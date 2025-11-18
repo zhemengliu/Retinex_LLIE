@@ -14,13 +14,14 @@ from torchvision import transforms
 from torchvision.transforms import functional as tvF
 from PIL import Image, ImageFont, ImageDraw
 from skimage.metrics import structural_similarity as ssim
-from skimage.metrics import peak_signal_noise_ratio as psnr
 import lpips
 from sys import platform
 from string import ascii_letters
 import matplotlib.pyplot as plt
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+def get_device(input):
+    """Derive device from input tensor"""
+    return input.device
 
 # -------------------------- 2. 基础工具函数（保留Uretinex原始架构） --------------------------
 def get_conv2d_layer(in_c, out_c, k, s, p=0, dilation=1, groups=1):
@@ -282,8 +283,9 @@ class HyPaNet(nn.Module):
             nn.Softplus())
 
     def forward(self, x):
-        x = self.mlp(x) + 1
-        return x
+        x = self.mlp(x)
+        x = torch.sigmoid(x)
+        return x*0.1 + 1
 
 
 class HyParNet(nn.Module):
@@ -295,8 +297,9 @@ class HyParNet(nn.Module):
             nn.Sigmoid())
 
     def forward(self, x):
-        x = self.mlp(x) + 0.001
-        return x
+        x = self.mlp(x)
+        x = torch.sigmoid(x)
+        return x + 0.01
 
 def grad(x):
     grd_x = torch.diff(x, dim=3)
@@ -331,35 +334,40 @@ def Dive(x, y):
 class DecomNet_RTV(nn.Module):
     def __init__(self, in_ch, k1=10):
         super(DecomNet_RTV, self).__init__()
-        self.hypar = HyPaNet(1, k1).to(device)
-        self.par1 = HyParNet(in_ch).to(device)
-        self.par2 = HyParNet(in_ch).to(device)
-        self.par3 = HyParNet(in_ch).to(device)
+        # Do not move submodules to device here; let the parent module's .to(device) handle it once
+        self.hypar = HyPaNet(1, k1)
+        self.par1 = HyParNet(in_ch)
+        self.par2 = HyParNet(in_ch)
+        self.par3 = HyParNet(in_ch)
         self.k1 = k1
 
     def forward(self, O):
         batch, ch, row, col = O.shape
 
+        # Derive device and dtype from input tensor O
+        dev = O.device
+        dt = O.dtype
+
         I = O.clone()
-        d1 = torch.zeros_like(I).to(device)
-        d2 = torch.zeros_like(I).to(device)
-        y1 = torch.zeros_like(I).to(device)
-        y2 = torch.zeros_like(I).to(device)
+        d1 = torch.zeros_like(I)
+        d2 = torch.zeros_like(I)
+        y1 = torch.zeros_like(I)
+        y2 = torch.zeros_like(I)
 
 
-        mu1 = torch.tensor(1.0).unsqueeze(0).unsqueeze(0).unsqueeze(0).unsqueeze(0)
-        mu = self.hypar(mu1.to(device)).to(device)
-        alpha = 0.001 * self.par1(O).to(device)
-        px = self.par2(O).to(device)
-        py = self.par3(O).to(device)
+        mu1 = torch.tensor(1.0, device=dev, dtype=dt).view(1, 1, 1, 1)
+        mu = self.hypar(mu1)
+        alpha = 0.001 * self.par1(O)
+        px = self.par2(O)
+        py = self.par3(O)
 
-        eps = 0.001
+        eps = torch.tensor(0.001, device=dev, dtype=dt)
         Dx = ([1.0], [-1.0])
         Dy = ([1.0, -1.0])
-        Dx = torch.tensor(Dx).unsqueeze(0).unsqueeze(0).to(device)
-        Dy = torch.tensor(Dy).unsqueeze(0).unsqueeze(0).unsqueeze(0).to(device)
+        Dx = torch.tensor(Dx, device=dev, dtype=dt).unsqueeze(0).unsqueeze(0)
+        Dy = torch.tensor(Dy, device=dev, dtype=dt).unsqueeze(0).unsqueeze(0).unsqueeze(0)
         eigDtD = torch.pow(torch.abs(fftn(Dx, batch, ch, col, row, 2)), 2) + torch.pow(
-            torch.abs(fftnt(Dy, batch, ch, row, col, 3)), 2).to(device)
+            torch.abs(fftnt(Dy, batch, ch, row, col, 3)), 2)
 
         I_list = []
 
@@ -369,14 +377,14 @@ class DecomNet_RTV(nn.Module):
             I = torch.real(torch.fft.ifftn(torch.fft.fftn(rhs_I) / lhs_I))
             DxI, DyI = grad(I)
 
-            wtbx = torch.max(torch.pow(torch.abs(DxI.to(device)), (2 - px)), torch.tensor(eps).to(device)) ** (-1)
-            wtby = torch.max(torch.pow(torch.abs(DyI.to(device)), (2 - py)), torch.tensor(eps).to(device)) ** (-1)
-            wx = wtbx.to(device)
-            wy = wtby.to(device)
-            d1 = mu[0, i, 0, 0] * (DxI.to(device) - y1) / (2 * alpha * wx + mu[0, i, 0, 0]+1e-3)
-            d2 = mu[0, i, 0, 0] * (DyI.to(device) - y2) / (2 * alpha * wy + mu[0, i, 0, 0]+1e-3)
-            y1 = y1 + (d1 - DxI.to(device))
-            y2 = y2 + (d2 - DyI.to(device))
+            wtbx = torch.max(torch.pow(torch.abs(DxI), (2 - px)), eps) ** (-1)
+            wtby = torch.max(torch.pow(torch.abs(DyI), (2 - py)), eps) ** (-1)
+            wx = wtbx
+            wy = wtby
+            d1 = mu[0, i, 0, 0] * (DxI - y1) / (2 * alpha * wx + mu[0, i, 0, 0] + 1e-3)
+            d2 = mu[0, i, 0, 0] * (DyI - y2) / (2 * alpha * wy + mu[0, i, 0, 0] + 1e-3)
+            y1 = y1 + (d1 - DxI)
+            y2 = y2 + (d2 - DyI)
             I_list.append(I)
             # wxx = torch.sqrt(alpha * wx)
             # wyy = torch.sqrt(alpha * wy)
