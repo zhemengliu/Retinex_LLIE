@@ -1,0 +1,5 @@
+[续训] Epoch [2/100] | Time: 245.42s | Total Loss: 0.078114 | Decom Loss: 0.021788 | Denoise Loss: 0.039084 | Illum Loss: 0.024107 | Recon Loss: 0.195690 | Best Loss: 0.078114
+[续训] Epoch [3/100] | Time: 245.86s | Total Loss: 0.049874 | Decom Loss: 0.012040 | Denoise Loss: 0.007971 | Illum Loss: 0.014632 | Recon Loss: 0.138274 | Best Loss: 0.049874
+[续训] Epoch [4/100] | Time: 245.94s | Total Loss: 0.047689 | Decom Loss: 0.010311 | Denoise Loss: 0.007349 | Illum Loss: 0.014009 | Recon Loss: 0.133182 | Best Loss: 0.047689
+[续训] Epoch [5/100] | Time: 245.80s | Total Loss: 0.044927 | Decom Loss: 0.008591 | Denoise Loss: 0.006364 | Illum Loss: 0.012655 | Recon Loss: 0.127132 | Best Loss: 0.044927
+[续训] Epoch [6/100] | Time: 245.29s | Total Loss: 0.041373 | Decom Loss: 0.007893 | Denoise Loss: 0.005965 | Illum Loss: 0.006234 | Recon Loss: 0.122439 | Best Loss: 0.041373
