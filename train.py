@@ -18,9 +18,6 @@ from skimage.metrics import peak_signal_noise_ratio as psnr
 import lpips
 from sys import platform
 from string import ascii_letters
-import os
-import argparse
-import time
 import datetime
 import matplotlib
 
@@ -62,14 +59,14 @@ def calculate_metrics(x_enhanced, x_normal, device="cuda"):
     return (ssim_sum / b, psnr_sum / b, lpips_sum / b)
 
 
-def visualize_modules(low_R, low_L, gamma_R, gamma_L, x_gamma, enhance_L, enhance_img, x_low, x_normal, filename,
+def visualize_modules(low_R, low_L, gt_R, gt_L, enhance_L, denoise_R, enhance_img, x_low, x_normal, filename,
                       save_dir="./visualization"):
     """优化版本：减少内存使用的模块级可视化"""
     import matplotlib.pyplot as plt
     import gc
     # 在tensor2np函数前加打印
-    # print(f"low_R范围: {torch.min(low_R):.4f} ~ {torch.max(low_R):.4f}")
-    # print(f"enhance_img范围: {torch.min(enhance_img):.4f} ~ {torch.max(enhance_img):.4f}")
+    print(f"low_R范围: {torch.min(low_R):.4f} ~ {torch.max(low_R):.4f}")
+    print(f"enhance_img范围: {torch.min(enhance_img):.4f} ~ {torch.max(enhance_img):.4f}")
     os.makedirs(save_dir, exist_ok=True)
 
     # tensor转numpy（0-1）- 添加内存优化
@@ -90,16 +87,16 @@ def visualize_modules(low_R, low_L, gamma_R, gamma_L, x_gamma, enhance_L, enhanc
         # 提取中间结果并释放原始tensor
         low_R_np = tensor2np(low_R)
         low_L_np = single2three(low_L)
-        gamma_R_np = tensor2np(gamma_R)
-        gamma_L_np = single2three(gamma_L)
-        x_gamma_np = tensor2np(x_gamma)
+        gt_R_np = tensor2np(gt_R)
+        gt_L_np = single2three(gt_L)
+        denoise_R_np = tensor2np(denoise_R)
         enhance_L_np = single2three(enhance_L)
         enhance_img_np = tensor2np(enhance_img)
         x_low_np = tensor2np(x_low)
         x_normal_np = tensor2np(x_normal)
 
         # 立即释放原始tensor引用
-        del low_R, low_L, gamma_R, gamma_L, x_gamma, enhance_L, enhance_img, x_low, x_normal
+        del low_R, low_L, gt_R, gt_L, denoise_R, enhance_L, enhance_img, x_low, x_normal
 
         # 绘制子图（减小尺寸和DPI）
         fig, axes = plt.subplots(3, 3, figsize=(12, 8))
@@ -115,21 +112,21 @@ def visualize_modules(low_R, low_L, gamma_R, gamma_L, x_gamma, enhance_L, enhanc
         axes[1].imshow(low_R_np)
         axes[1].set_title("Reflectance Low", fontsize=9)
         axes[1].axis("off")
-        axes[2].imshow(gamma_R_np)
-        axes[2].set_title("Reflectance Gamma", fontsize=9)
+        axes[2].imshow(gt_R_np)
+        axes[2].set_title("Reflectance GT", fontsize=9)
         axes[2].axis("off")
 
         # 3. Uretinex分解照明层
         axes[3].imshow(low_L_np)
         axes[3].set_title("Illumination Low", fontsize=9)
         axes[3].axis("off")
-        axes[4].imshow(gamma_L_np)
-        axes[4].set_title("Illumination Gamma", fontsize=9)
+        axes[4].imshow(gt_L_np)
+        axes[4].set_title("Illumination GT", fontsize=9)
         axes[4].axis("off")
 
         # 4. Noise2noise去噪反射层
-        axes[5].imshow(x_gamma_np)
-        axes[5].set_title("Gamma Correction", fontsize=9)
+        axes[5].imshow(denoise_R_np)
+        axes[5].set_title("Denoised Reflectance", fontsize=9)
         axes[5].axis("off")
 
         # 5. Zero-DCE增强照明层
@@ -150,7 +147,7 @@ def visualize_modules(low_R, low_L, gamma_R, gamma_L, x_gamma, enhance_L, enhanc
         plt.savefig(save_path, dpi=100, bbox_inches="tight", pad_inches=0.1)
 
         # 释放numpy数组内存
-        del low_R_np, low_L_np, gamma_R_np, gamma_L_np, x_gamma_np, enhance_L_np, enhance_img_np, x_low_np, x_normal_np
+        del low_R_np, low_L_np, gt_R_np, gt_L_np, denoise_R_np, enhance_L_np, enhance_img_np, x_low_np, x_normal_np
 
     except Exception as e:
         print(f"可视化失败 {filename}: {e}")
@@ -177,7 +174,7 @@ def train(args, model, train_loader, test_loader, optimizer, scheduler, device, 
     # 调整epoch循环范围：从resume_epoch开始到args.epochs
     for epoch in range(resume_epoch, args.epochs):
         epoch_start = time.time()
-        total_loss, decom_loss, illum_loss = 0.0, 0.0, 0.0
+        total_loss, decom_loss, denoise_loss, illum_loss, recon_loss = 0.0, 0.0, 0.0, 0.0, 0.0
 
         for batch_idx, (name, x_low, x_normal) in enumerate(train_loader):
             # 数据移至设备
@@ -185,30 +182,32 @@ def train(args, model, train_loader, test_loader, optimizer, scheduler, device, 
             x_normal = x_normal.to(device)
 
             # 前向传播
-            low_R, low_L, gamma_R, gamma_L, x_gamma, enhance_L, enhance_img = model(x_low)
-            # print("enhance_img 类型:", type(enhance_img))  # 应输出 <class 'torch.Tensor'>
+            low_R, low_L, gt_R, gt_L, enhance_L1, enhance_L, denoise_R, enhance_img = model(x_low, x_normal)
 
             # 计算总损失
-            loss, d_loss, i_loss = compute_total_loss(
-                x_low, low_R, low_L, gamma_R, gamma_L, x_gamma, enhance_L, enhance_img
+            loss, d_loss, n_loss, i_loss, r_loss = compute_total_loss(
+                x_low, x_normal, low_R, low_L, gt_R, gt_L, enhance_L1, enhance_L, denoise_R, enhance_img, args
             )
 
             # 反向传播
             optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # 限制梯度L2范数不超过1.0
             optimizer.step()
 
             # 累加损失
             batch_size = x_low.size(0)
             total_loss += loss.item() * batch_size
             decom_loss += d_loss.item() * batch_size
+            denoise_loss += n_loss.item() * batch_size
             illum_loss += i_loss.item() * batch_size
+            recon_loss += r_loss.item() * batch_size
 
         # 平均损失
         avg_total = total_loss / len(train_loader.dataset)
         avg_d = decom_loss / len(train_loader.dataset)
+        avg_n = denoise_loss / len(train_loader.dataset)
         avg_i = illum_loss / len(train_loader.dataset)
+        avg_r = recon_loss / len(train_loader.dataset)
 
         # 学习率调度（基于当前epoch的损失）
         scheduler.step(avg_total)
@@ -220,23 +219,16 @@ def train(args, model, train_loader, test_loader, optimizer, scheduler, device, 
             # 保存模型权重 + 调度器状态（关键：续训时恢复学习率）
             save_dict = {
                 "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),  # 保存优化器状态
                 "scheduler_state_dict": scheduler.state_dict(),
                 "best_loss": best_loss,
                 "last_epoch": epoch  # 记录最后训练的epoch
             }
             save_path = os.path.join(args.ckpt_dir, "best_model.pth")
             torch.save(save_dict, save_path)
-            print(f"[续训] 模型已保存至: {save_path} (当前epoch: {epoch + 1}, 最佳损失: {best_loss:.6f})")
+            print(f"[续训] 最佳模型已保存至: {save_path} (当前epoch: {epoch + 1}, 最佳损失: {best_loss:.6f})")
 
-        # # 打印日志（标注续训epoch）
-        # epoch_time = time.time() - epoch_start
-        # log_str = f"[续训] Epoch [{epoch + 1}/{args.epochs}] | Time: {epoch_time:.2f}s | " \
-        #           f"Total Loss: {avg_total:.6f} | Decom Loss: {avg_d:.6f} | " \
-        #           f"Denoise Loss: {avg_n:.6f} | Illum Loss: {avg_i:.6f} | " \
-        #           f"Recon Loss: {avg_r:.6f} | Best Loss: {best_loss:.6f}"
-        # print(log_str)
-
-        # -------------------------- 2. 新增：每隔10个epoch定期保存模型 --------------------------
+        # 每隔10个epoch定期保存模型
         if (epoch + 1) % 10 == 0:  # epoch+1是1-based，确保第10、20、30...epoch保存
             os.makedirs(args.ckpt_dir, exist_ok=True)
             # 定期保存字典：包含模型、优化器、调度器状态（支持从该模型续训）
@@ -244,7 +236,7 @@ def train(args, model, train_loader, test_loader, optimizer, scheduler, device, 
                 "model_state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),  # 保存优化器状态
                 "scheduler_state_dict": scheduler.state_dict(),  # 保存学习率调度状态
-                "current_epoch": epoch + 1,  # 记录当前完成的epoch（1-based，用户易读）
+                "current_epoch": epoch + 1,  # 记录当前完成的epoch（1-based）
                 "current_total_loss": avg_total,  # 记录当前epoch损失
                 "best_loss_so_far": best_loss  # 记录截至当前的最佳损失
             }
@@ -253,20 +245,21 @@ def train(args, model, train_loader, test_loader, optimizer, scheduler, device, 
             torch.save(periodic_save_dict, periodic_save_path)
             print(f"[定期保存] 第 {epoch + 1} 个epoch模型已保存至: {periodic_save_path}")
 
-        # 打印日志（标注续训epoch）
+        # 打印日志
         epoch_time = time.time() - epoch_start
-        log_str = f"[续训] Epoch [{epoch + 1}/{args.epochs}] | Time: {epoch_time:.2f}s | " \
-                  f"Total Loss: {avg_total:.6f} | Decom Loss: {avg_d:.6f} | Illum Loss: {avg_i:.6f}"
+        log_str = f"[训练] Epoch [{epoch + 1}/{args.epochs}] | Time: {epoch_time:.2f}s | " \
+                  f"Total Loss: {avg_total:.6f} | Decom Loss: {avg_d:.6f} | " \
+                  f"Denoise Loss: {avg_n:.6f} | Illum Loss: {avg_i:.6f} | " \
+                  f"Recon Loss: {avg_r:.6f} | Best Loss: {best_loss:.6f}"
         print(log_str)
 
         # 写入训练日志（追加模式，避免覆盖）
-        loss_log_path = os.path.join(args.vis_dir, "train_loss_log.txt")
         with open(loss_log_path, "a" if resume_epoch > 0 or epoch > 0 else "w") as f:
             f.write(log_str + "\n")
 
-        # 每1个epoch验证（修复test_loader作用域：传入函数）
+        # 每1个epoch验证
         if (epoch + 1) % 1 == 0:
-            print(f"[续训] Evaluating / epoch {epoch + 1}...")
+            print(f"[验证] Evaluating / epoch {epoch + 1}...")
             model.eval()
             total_ssim, total_psnr, total_lpips = 0.0, 0.0, 0.0
             num_samples = len(test_loader.dataset)
@@ -277,16 +270,7 @@ def train(args, model, train_loader, test_loader, optimizer, scheduler, device, 
                     print(f" Processing {idx + 1}/{num_samples}: {filename[0]}")
 
                     # 前向传播
-                    low_R, low_L, gamma_R, gamma_L, x_gamma, enhance_L, enhance_img = model(x_low)
-
-                    # 检查中间输出
-                    # print(f"分解输出 - low_R: [{low_R.min():.4f}, {low_R.max():.4f}]")
-                    # print(f"分解输出 - low_L: [{low_L.min():.4f}, {low_L.max():.4f}]")
-
-                    # 如果发现NaN，立即停止
-                    if torch.isnan(low_R).any():
-                        print("检测到NaN在low_R中！")
-                        break
+                    low_R, low_L, gt_R, gt_L, enhance_L1, enhance_L, denoise_R, enhance_img = model(x_low, x_normal)
 
                     # 计算指标
                     ssim_val, psnr_val, lpips_val = calculate_metrics(enhance_img, x_normal, device)
@@ -294,9 +278,9 @@ def train(args, model, train_loader, test_loader, optimizer, scheduler, device, 
                     total_psnr += psnr_val
                     total_lpips += lpips_val
 
-                    # 模块可视化（修复参数顺序：原代码多传了enhance_L1，此处修正）
+                    # 模块可视化
                     visualize_modules(
-                        low_R, low_L, gamma_R, gamma_L, x_gamma, enhance_L, enhance_img, x_low, x_normal,
+                        low_R, low_L, gt_R, gt_L, enhance_L, denoise_R, enhance_img, x_low, x_normal,
                         filename[0], save_dir=args.vis_dir
                     )
 
@@ -312,7 +296,7 @@ def train(args, model, train_loader, test_loader, optimizer, scheduler, device, 
             # 保存验证结果（追加模式）
             eval_log_path = os.path.join(args.vis_dir, "eval_metrics.txt")
             with open(eval_log_path, "a" if resume_epoch > 0 or epoch > 0 else "w") as f:
-                f.write(f"[续训] Epoch {epoch + 1} Test Metrics (Average over {num_samples} samples):\n")
+                f.write(f"[验证] Epoch {epoch + 1} Test Metrics (Average over {num_samples} samples):\n")
                 f.write(f"Average SSIM: {avg_ssim:.4f}\n")
                 f.write(f"Average PSNR: {avg_psnr:.4f}\n")
                 f.write(f"Average LPIPS: {avg_lpips:.4f}\n")
@@ -320,7 +304,7 @@ def train(args, model, train_loader, test_loader, optimizer, scheduler, device, 
 
             # 验证日志
             print("\n" + "=" * 50)
-            print(f"[续训] Epoch {epoch + 1} Test Results (Average):")
+            print(f"[验证] Epoch {epoch + 1} Test Results (Average):")
             print(f"SSIM: {avg_ssim:.4f} | PSNR: {avg_psnr:.4f} | LPIPS: {avg_lpips:.4f}")
             print("=" * 50 + "\n")
 
@@ -328,27 +312,39 @@ def train(args, model, train_loader, test_loader, optimizer, scheduler, device, 
             model.train()
 
 
+def extract_epoch_from_filename(filename):
+    """从模型文件名中提取epoch数，如model_epoch_38.pth返回38"""
+    import re
+    # 匹配model_epoch_数字.pth格式
+    match = re.search(r'model_epoch_(\d+)\.pth', filename)
+    if match:
+        return int(match.group(1))
+    # 处理最佳模型
+    if filename == 'best_model.pth':
+        return None  # 最佳模型需要从文件内部读取epoch
+    return None
+
+
 if __name__ == "__main__":
-    # 命令行参数（新增续训相关参数）
+    # 命令行参数
     parser = argparse.ArgumentParser(description="Low Light Enhancement (Uretinex+Noise2noise+Zero-DCE)")
     # 通用参数
-    parser.add_argument("--epochs", type=int, default=100, help="总训练epoch数（原默认100）")
-    parser.add_argument("--batch_size", type=int, default=16, help="Batch size（原代码实际用4，此处统一）")
-    parser.add_argument("--lr", type=float, default=1e-5, help="初始学习率")
+    parser.add_argument("--epochs", type=int, default=100, help="总训练epoch数")
+    parser.add_argument("--batch_size", type=int, default=4, help="Batch size")
+    parser.add_argument("--lr", type=float, default=1e-4, help="初始学习率")
     parser.add_argument("--crop_size", type=int, default=64, help="Crop size")
     parser.add_argument("--gpu_id", type=int, default=0, help="GPU ID")
-    parser.add_argument("--ckpt_dir", type=str, default="./ckpt", help="模型保存目录（需包含best_model.pth）")
-    parser.add_argument("--vis_dir", type=str, default="./test_visualization", help="可视化目录")
-    # 续训关键参数
-    parser.add_argument("--resume", action="store_true", help="是否开启断点续训")
-    # parser.add_argument("--resume_epoch", type=int, default=1, help="续训起始epoch（从28开始）")
-    parser.add_argument("--resume_ckpt", type=str, default="./ckpt/best_model.pth", help="续训模型路径")
+    # 新增：指定保存目录
+    parser.add_argument("--save_dir", type=str, default="E:/大创/20251003", help="模型和日志保存的根目录，保存地址修改在这里")
+    # 续训参数
+    parser.add_argument("--resume", action="store_true", default=False, help="是否开启断点续训")
+    parser.add_argument("--resume_ckpt", type=str, default="E:/大创/new_results_20251002_1655/ckpt/model_epoch_50.pth", help="续训模型路径，如果要接着训，修改这里的路径")
     # Uretinex参数
-    parser.add_argument("--unfolding_round", type=int, default=3, help="Uretinex迭代轮次")
+    parser.add_argument("--unfolding_round", type=int, default=5, help="Uretinex迭代轮次")
     parser.add_argument("--gamma", type=float, default=0.1, help="P的正则化参数")
     parser.add_argument("--lamda", type=float, default=0.1, help="Q的正则化参数")
-    parser.add_argument("--Roffset", type=float, default=1.01, help="gamma增量")
-    parser.add_argument("--Loffset", type=float, default=1.01, help="lamda增量")
+    parser.add_argument("--Roffset", type=float, default=0.05, help="gamma增量")
+    parser.add_argument("--Loffset", type=float, default=0.05, help="lamda增量")
     parser.add_argument("--tv_weight", type=float, default=0.01, help="TV损失权重")
     parser.add_argument("--norm_layer", type=str, default="batch", help="归一化层类型")
     parser.add_argument("--concat_L", type=bool, default=False, help="是否拼接L到R")
@@ -363,58 +359,49 @@ if __name__ == "__main__":
     # 1. 设备配置
     os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu_id)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f" Using device: {device}")
+    print(f"使用设备: {device}")
 
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
-    new_root_dir = f"20251104"  # 新根目录名称，可自定义前缀
+    # 2. 设置保存目录
+    # 从根目录创建子文件夹
+    args.ckpt_dir = os.path.join(args.save_dir, "ckpt")  # 模型保存目录
+    args.vis_dir = os.path.join(args.save_dir, "visualization")  # 可视化/日志目录
+    # 创建目录（不存在则创建）
+    os.makedirs(args.ckpt_dir, exist_ok=True)
+    os.makedirs(args.vis_dir, exist_ok=True)
+    print(f"模型保存路径：{args.ckpt_dir}")
+    print(f"可视化/日志路径：{args.vis_dir}")
 
-    # 定义新的子文件夹路径（模型权重+可视化结果）
-    new_ckpt_dir = os.path.join(new_root_dir, "ckpt")  # 新模型保存目录
-    new_vis_dir = os.path.join(new_root_dir, "visualization")  # 新可视化/日志目录
-
-    # 自动创建所有文件夹（不存在则创建，存在不报错）
-    os.makedirs(new_ckpt_dir, exist_ok=True)
-    os.makedirs(new_vis_dir, exist_ok=True)
-    print(f"✅ 新结果目录已创建：{new_root_dir}")
-    print(f"  - 模型权重路径：{new_ckpt_dir}")
-    print(f"  - 可视化/日志路径：{new_vis_dir}")
-
-    # 3. 覆盖原有args中的保存路径（关键：让代码所有保存操作指向新目录）
-    args.ckpt_dir = new_ckpt_dir  # 模型保存目录指向新子文件夹
-    args.vis_dir = new_vis_dir  # 可视化/日志目录指向新子文件夹
-
-    # 2. 固定随机种子（关键：确保续训时数据和之前一致）
-    seed = 42  # 可自定义，需与首次训练时一致
+    # 3. 固定随机种子
+    seed = 42
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
-    print(f"[续训] 已固定随机种子: {seed}（确保数据一致性）")
+    print(f"已固定随机种子: {seed}（确保数据一致性）")
 
-    # 3. 加载数据（与原代码一致，但固定rand_mode避免随机性）
+    # 4. 加载数据
     train_folder = ["D:\\low_light_image\\Dataset\\Dataset\\LOLdataset\\our485\\low\\",
                     "D:\\low_light_image\\Dataset\\Dataset\\LOLdataset\\our485\\high\\"]
     train_Data = []
-    # 续训关键：固定rand_mode（首次训练时用的是随机，此处用固定值确保数据一致）
-    fixed_rand_modes = [np.random.randint(0, 7) for _ in range(10)]  # 首次训练时的rand_mode列表，可从日志获取
+    fixed_rand_modes = [np.random.randint(0, 7) for _ in range(10)]
     for patch_id in range(10):
-        rand_mode = fixed_rand_modes[patch_id]  # 用固定的rand_mode
+        rand_mode = fixed_rand_modes[patch_id]
         train_data = MyDataset(rand_mode, patch_size=128, folder=train_folder)
         train_Data.extend(train_data)
-    print(f" Number of training data: {len(train_Data)}")
+    print(f"训练数据数量: {len(train_Data)}")
 
-    # 训练加载器（与原代码一致）
+    # 训练加载器
     train_loader = DataLoader(
         dataset=train_Data,
         batch_size=args.batch_size,
         shuffle=True,
-        num_workers=0,
+        num_workers=1,
         drop_last=True
     )
 
-    # 测试加载器（与原代码一致）
+    # 测试加载器
     eval_folder = ["D:\\low_light_image\\Dataset\\Dataset\\LOLdataset\\eval15\\low\\",
                    "D:\\low_light_image\\Dataset\\Dataset\\LOLdataset\\eval15\\high\\"]
     test_transform = transforms.Compose([transforms.ToTensor()])
@@ -426,9 +413,9 @@ if __name__ == "__main__":
         num_workers=1,
         pin_memory=True
     )
-    print(f" Train samples: {len(train_loader.dataset)}, Test samples: {len(test_loader.dataset)}")
+    print(f"训练样本数: {len(train_loader.dataset)}, 测试样本数: {len(test_loader.dataset)}")
 
-    # 4. 模型初始化 + 续训加载（核心步骤）
+    # 5. 模型初始化 + 续训加载
     model = LLIE(args).to(device)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     scheduler = lr_scheduler.ReduceLROnPlateau(
@@ -438,34 +425,54 @@ if __name__ == "__main__":
         verbose=True
     )
 
-    # 若开启续训，加载模型权重和调度器状态
+    # 续训起始epoch
     resume_epoch = 0
-    best_loss = float("inf") # 优先使用命令行传入的续训起始epoch
+    best_loss = float("inf")
+
+    # 若开启续训，加载模型权重和相关状态
     if args.resume:
         if not os.path.exists(args.resume_ckpt):
             raise FileNotFoundError(f"续训模型不存在: {args.resume_ckpt}")
 
-        # 加载保存的字典（含模型、优化器、调度器、损失）
-        checkpoint = torch.load(args.resume_ckpt, map_location=device)
-        model.load_state_dict(checkpoint["model_state_dict"])  # 加载模型权重
-        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])  # 加载优化器状态（新增）
-        scheduler.load_state_dict(checkpoint["scheduler_state_dict"])  # 加载学习率状态
-        best_loss = checkpoint.get("best_loss", float("inf"))  # 兼容最佳模型和定期模型
-        # 若定期模型包含current_epoch，可自动获取续训起始epoch（优先命令行参数）
-        if "current_epoch" in checkpoint:
-            resume_epoch = checkpoint["current_epoch"]  # 从定期模型的current_epoch继续
-        else:
-            # 兼容旧版本模型文件
-            resume_epoch = checkpoint.get("last_epoch", 0) + 1
-        print(f" 成功加载模型: {args.resume_ckpt}")
-        print(f" 历史最佳损失: {best_loss:.6f}")
-        print(f" 起始epoch: {resume_epoch}（目标总epoch: {args.epochs}）")
-        print(f"还需训练: {args.epochs - resume_epoch} 个epochs")
-    print(
-        f"Model initialized: {args.unfolding_round} Uretinex rounds, {args.noise2noise_res_layers} Noise2noise res layers")
+        # 从文件名提取epoch
+        ckpt_filename = os.path.basename(args.resume_ckpt)
+        epoch_from_filename = extract_epoch_from_filename(ckpt_filename)
 
-    # 5. 开始训练（传入test_loader，修复原代码作用域bug）
-    print("\nStart Training from Epoch {}...".format(resume_epoch))
+        # 加载保存的字典
+        checkpoint = torch.load(args.resume_ckpt, map_location=device)
+        model.load_state_dict(checkpoint["model_state_dict"])
+
+        # 如果是定期保存的模型（含epoch信息）
+        if epoch_from_filename is not None:
+            resume_epoch = epoch_from_filename  # 从文件名提取的epoch开始
+            print(f"从文件名提取到已完成epoch: {epoch_from_filename}")
+        else:
+            # 最佳模型，从文件内部读取
+            if "last_epoch" in checkpoint:
+                resume_epoch = checkpoint["last_epoch"] + 1  # 加1开始下一轮
+                print(f"从最佳模型提取到最后训练epoch: {checkpoint['last_epoch']}")
+            elif "current_epoch" in checkpoint:
+                resume_epoch = checkpoint["current_epoch"]
+                print(f"从模型文件提取到当前epoch: {checkpoint['current_epoch']}")
+
+        # 加载优化器和调度器状态
+        if "optimizer_state_dict" in checkpoint:
+            optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        if "scheduler_state_dict" in checkpoint:
+            scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+
+        # 加载最佳损失
+        best_loss = checkpoint.get("best_loss", float("inf"))
+        print(f"成功加载模型: {args.resume_ckpt}")
+        print(f"历史最佳损失: {best_loss:.6f}")
+        print(f"起始epoch: {resume_epoch}（目标总epoch: {args.epochs}）")
+        print(f"还需训练: {args.epochs - resume_epoch} 个epochs")
+
+    print(
+        f"模型初始化完成: {args.unfolding_round} Uretinex rounds, {args.noise2noise_res_layers} Noise2noise res layers")
+
+    # 6. 开始训练
+    print(f"\n从Epoch {resume_epoch} 开始训练...")
     train(args, model, train_loader, test_loader, optimizer, scheduler, device, resume_epoch=resume_epoch)
 
-    print("\nAll Done!")
+    print("\n训练完成!")

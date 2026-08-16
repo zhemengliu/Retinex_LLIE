@@ -1,0 +1,505 @@
+[续训] Epoch 1 Test Metrics (Average over 15 samples):
+Average SSIM: 0.5907
+Average PSNR: 16.1689
+Average LPIPS: 0.5787
+--------------------------------------------------
+[续训] Epoch 2 Test Metrics (Average over 15 samples):
+Average SSIM: 0.6134
+Average PSNR: 14.8017
+Average LPIPS: 0.5034
+--------------------------------------------------
+[续训] Epoch 2 Test Metrics (Average over 15 samples):
+Average SSIM: 0.5907
+Average PSNR: 16.1689
+Average LPIPS: 0.5787
+--------------------------------------------------
+[续训] Epoch 3 Test Metrics (Average over 15 samples):
+Average SSIM: 0.6134
+Average PSNR: 14.8017
+Average LPIPS: 0.5034
+--------------------------------------------------
+[续训] Epoch 4 Test Metrics (Average over 15 samples):
+Average SSIM: 0.6219
+Average PSNR: 16.9103
+Average LPIPS: 0.4955
+--------------------------------------------------
+[续训] Epoch 5 Test Metrics (Average over 15 samples):
+Average SSIM: 0.6380
+Average PSNR: 16.9281
+Average LPIPS: 0.4805
+--------------------------------------------------
+[续训] Epoch 6 Test Metrics (Average over 15 samples):
+Average SSIM: 0.6443
+Average PSNR: 17.2004
+Average LPIPS: 0.4712
+--------------------------------------------------
+[续训] Epoch 7 Test Metrics (Average over 15 samples):
+Average SSIM: 0.6364
+Average PSNR: 17.2097
+Average LPIPS: 0.4796
+--------------------------------------------------
+[续训] Epoch 8 Test Metrics (Average over 15 samples):
+Average SSIM: 0.6556
+Average PSNR: 15.6564
+Average LPIPS: 0.4437
+--------------------------------------------------
+[续训] Epoch 9 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7030
+Average PSNR: 17.9710
+Average LPIPS: 0.4262
+--------------------------------------------------
+[续训] Epoch 10 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7111
+Average PSNR: 17.1770
+Average LPIPS: 0.3963
+--------------------------------------------------
+[续训] Epoch 11 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7129
+Average PSNR: 17.9548
+Average LPIPS: 0.3902
+--------------------------------------------------
+[续训] Epoch 12 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7116
+Average PSNR: 18.5951
+Average LPIPS: 0.3636
+--------------------------------------------------
+[续训] Epoch 13 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7344
+Average PSNR: 17.6514
+Average LPIPS: 0.3365
+--------------------------------------------------
+[续训] Epoch 14 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7206
+Average PSNR: 18.5733
+Average LPIPS: 0.3481
+--------------------------------------------------
+[续训] Epoch 15 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7375
+Average PSNR: 18.9519
+Average LPIPS: 0.3236
+--------------------------------------------------
+[续训] Epoch 16 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7360
+Average PSNR: 19.1518
+Average LPIPS: 0.3245
+--------------------------------------------------
+[续训] Epoch 17 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7367
+Average PSNR: 18.5411
+Average LPIPS: 0.3232
+--------------------------------------------------
+[续训] Epoch 18 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7262
+Average PSNR: 17.4846
+Average LPIPS: 0.3634
+--------------------------------------------------
+[续训] Epoch 19 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7579
+Average PSNR: 18.9871
+Average LPIPS: 0.2992
+--------------------------------------------------
+[续训] Epoch 20 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7568
+Average PSNR: 19.0358
+Average LPIPS: 0.3115
+--------------------------------------------------
+[续训] Epoch 21 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7270
+Average PSNR: 18.7945
+Average LPIPS: 0.3289
+--------------------------------------------------
+[续训] Epoch 22 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7540
+Average PSNR: 18.7914
+Average LPIPS: 0.3089
+--------------------------------------------------
+[续训] Epoch 23 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7640
+Average PSNR: 19.5313
+Average LPIPS: 0.2966
+--------------------------------------------------
+[续训] Epoch 24 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7574
+Average PSNR: 19.5210
+Average LPIPS: 0.2924
+--------------------------------------------------
+[续训] Epoch 25 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7558
+Average PSNR: 19.1865
+Average LPIPS: 0.3095
+--------------------------------------------------
+[续训] Epoch 26 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7422
+Average PSNR: 19.3648
+Average LPIPS: 0.3141
+--------------------------------------------------
+[续训] Epoch 27 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7705
+Average PSNR: 19.0697
+Average LPIPS: 0.2879
+--------------------------------------------------
+[续训] Epoch 28 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7539
+Average PSNR: 19.5922
+Average LPIPS: 0.2944
+--------------------------------------------------
+[续训] Epoch 29 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7732
+Average PSNR: 19.2203
+Average LPIPS: 0.2780
+--------------------------------------------------
+[续训] Epoch 30 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7688
+Average PSNR: 19.2813
+Average LPIPS: 0.2920
+--------------------------------------------------
+[续训] Epoch 31 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7672
+Average PSNR: 19.1542
+Average LPIPS: 0.3026
+--------------------------------------------------
+[续训] Epoch 32 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7616
+Average PSNR: 19.6907
+Average LPIPS: 0.2804
+--------------------------------------------------
+[续训] Epoch 33 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7781
+Average PSNR: 19.7161
+Average LPIPS: 0.2655
+--------------------------------------------------
+[续训] Epoch 34 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7690
+Average PSNR: 19.6766
+Average LPIPS: 0.2810
+--------------------------------------------------
+[续训] Epoch 35 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7607
+Average PSNR: 19.2429
+Average LPIPS: 0.3017
+--------------------------------------------------
+[续训] Epoch 36 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7772
+Average PSNR: 20.1971
+Average LPIPS: 0.2623
+--------------------------------------------------
+[续训] Epoch 37 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7633
+Average PSNR: 19.1513
+Average LPIPS: 0.2944
+--------------------------------------------------
+[续训] Epoch 38 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7693
+Average PSNR: 20.2666
+Average LPIPS: 0.2755
+--------------------------------------------------
+[续训] Epoch 39 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7739
+Average PSNR: 20.0263
+Average LPIPS: 0.2661
+--------------------------------------------------
+[续训] Epoch 40 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7709
+Average PSNR: 19.6339
+Average LPIPS: 0.2742
+--------------------------------------------------
+[续训] Epoch 41 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7731
+Average PSNR: 19.6958
+Average LPIPS: 0.2723
+--------------------------------------------------
+[续训] Epoch 42 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7793
+Average PSNR: 19.9192
+Average LPIPS: 0.2635
+--------------------------------------------------
+[续训] Epoch 43 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7783
+Average PSNR: 19.9796
+Average LPIPS: 0.2617
+--------------------------------------------------
+[续训] Epoch 44 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7816
+Average PSNR: 20.1537
+Average LPIPS: 0.2596
+--------------------------------------------------
+[续训] Epoch 45 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7717
+Average PSNR: 19.9608
+Average LPIPS: 0.2583
+--------------------------------------------------
+[续训] Epoch 46 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7673
+Average PSNR: 19.4099
+Average LPIPS: 0.2650
+--------------------------------------------------
+[续训] Epoch 47 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7812
+Average PSNR: 19.8864
+Average LPIPS: 0.2578
+--------------------------------------------------
+[续训] Epoch 48 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7708
+Average PSNR: 19.4530
+Average LPIPS: 0.2743
+--------------------------------------------------
+[续训] Epoch 49 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7701
+Average PSNR: 18.8695
+Average LPIPS: 0.2749
+--------------------------------------------------
+[续训] Epoch 50 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7725
+Average PSNR: 20.0006
+Average LPIPS: 0.2569
+--------------------------------------------------
+[续训] Epoch 51 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7803
+Average PSNR: 20.1092
+Average LPIPS: 0.2631
+--------------------------------------------------
+[续训] Epoch 52 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7808
+Average PSNR: 19.8965
+Average LPIPS: 0.2602
+--------------------------------------------------
+[续训] Epoch 53 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7770
+Average PSNR: 19.7414
+Average LPIPS: 0.2557
+--------------------------------------------------
+[续训] Epoch 54 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7834
+Average PSNR: 20.3629
+Average LPIPS: 0.2539
+--------------------------------------------------
+[续训] Epoch 55 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7777
+Average PSNR: 20.0064
+Average LPIPS: 0.2710
+--------------------------------------------------
+[续训] Epoch 56 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7738
+Average PSNR: 19.3762
+Average LPIPS: 0.2564
+--------------------------------------------------
+[续训] Epoch 57 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7866
+Average PSNR: 19.8287
+Average LPIPS: 0.2684
+--------------------------------------------------
+[续训] Epoch 58 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7875
+Average PSNR: 20.5474
+Average LPIPS: 0.2454
+--------------------------------------------------
+[续训] Epoch 59 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7809
+Average PSNR: 19.8137
+Average LPIPS: 0.2533
+--------------------------------------------------
+[续训] Epoch 60 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7794
+Average PSNR: 19.4920
+Average LPIPS: 0.2536
+--------------------------------------------------
+[续训] Epoch 61 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7872
+Average PSNR: 20.2419
+Average LPIPS: 0.2467
+--------------------------------------------------
+[续训] Epoch 62 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7798
+Average PSNR: 19.7635
+Average LPIPS: 0.2494
+--------------------------------------------------
+[续训] Epoch 63 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7824
+Average PSNR: 19.7245
+Average LPIPS: 0.2523
+--------------------------------------------------
+[续训] Epoch 64 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7861
+Average PSNR: 20.1502
+Average LPIPS: 0.2423
+--------------------------------------------------
+[续训] Epoch 65 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7845
+Average PSNR: 20.4108
+Average LPIPS: 0.2361
+--------------------------------------------------
+[续训] Epoch 66 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7806
+Average PSNR: 19.8215
+Average LPIPS: 0.2535
+--------------------------------------------------
+[续训] Epoch 67 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7870
+Average PSNR: 20.0934
+Average LPIPS: 0.2446
+--------------------------------------------------
+[续训] Epoch 68 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7856
+Average PSNR: 19.9450
+Average LPIPS: 0.2365
+--------------------------------------------------
+[续训] Epoch 69 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7860
+Average PSNR: 20.2319
+Average LPIPS: 0.2405
+--------------------------------------------------
+[续训] Epoch 70 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7832
+Average PSNR: 19.6227
+Average LPIPS: 0.2475
+--------------------------------------------------
+[续训] Epoch 71 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7838
+Average PSNR: 19.9454
+Average LPIPS: 0.2466
+--------------------------------------------------
+[续训] Epoch 72 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7880
+Average PSNR: 20.1181
+Average LPIPS: 0.2331
+--------------------------------------------------
+[续训] Epoch 73 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7817
+Average PSNR: 19.8675
+Average LPIPS: 0.2386
+--------------------------------------------------
+[续训] Epoch 74 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7827
+Average PSNR: 19.3216
+Average LPIPS: 0.2459
+--------------------------------------------------
+[续训] Epoch 75 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7846
+Average PSNR: 19.9815
+Average LPIPS: 0.2397
+--------------------------------------------------
+[续训] Epoch 76 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7924
+Average PSNR: 20.2608
+Average LPIPS: 0.2296
+--------------------------------------------------
+[续训] Epoch 77 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7889
+Average PSNR: 20.4017
+Average LPIPS: 0.2368
+--------------------------------------------------
+[续训] Epoch 78 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7905
+Average PSNR: 20.2457
+Average LPIPS: 0.2366
+--------------------------------------------------
+[续训] Epoch 79 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7841
+Average PSNR: 19.6533
+Average LPIPS: 0.2433
+--------------------------------------------------
+[续训] Epoch 80 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7858
+Average PSNR: 19.5797
+Average LPIPS: 0.2367
+--------------------------------------------------
+[续训] Epoch 81 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7886
+Average PSNR: 20.1642
+Average LPIPS: 0.2387
+--------------------------------------------------
+[续训] Epoch 82 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7937
+Average PSNR: 20.6878
+Average LPIPS: 0.2320
+--------------------------------------------------
+[续训] Epoch 83 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7882
+Average PSNR: 20.0709
+Average LPIPS: 0.2344
+--------------------------------------------------
+[续训] Epoch 84 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7923
+Average PSNR: 20.3856
+Average LPIPS: 0.2360
+--------------------------------------------------
+[续训] Epoch 85 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7813
+Average PSNR: 19.4609
+Average LPIPS: 0.2417
+--------------------------------------------------
+[续训] Epoch 86 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7884
+Average PSNR: 20.0637
+Average LPIPS: 0.2265
+--------------------------------------------------
+[续训] Epoch 87 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7876
+Average PSNR: 19.2421
+Average LPIPS: 0.2383
+--------------------------------------------------
+[续训] Epoch 88 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7802
+Average PSNR: 19.1988
+Average LPIPS: 0.2395
+--------------------------------------------------
+[续训] Epoch 89 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7869
+Average PSNR: 19.7904
+Average LPIPS: 0.2294
+--------------------------------------------------
+[续训] Epoch 90 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7812
+Average PSNR: 19.5370
+Average LPIPS: 0.2374
+--------------------------------------------------
+[续训] Epoch 91 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7769
+Average PSNR: 19.2686
+Average LPIPS: 0.2451
+--------------------------------------------------
+[续训] Epoch 92 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7900
+Average PSNR: 20.0424
+Average LPIPS: 0.2359
+--------------------------------------------------
+[续训] Epoch 93 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7877
+Average PSNR: 19.8302
+Average LPIPS: 0.2363
+--------------------------------------------------
+[续训] Epoch 94 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7882
+Average PSNR: 19.9509
+Average LPIPS: 0.2287
+--------------------------------------------------
+[续训] Epoch 95 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7951
+Average PSNR: 20.7006
+Average LPIPS: 0.2242
+--------------------------------------------------
+[续训] Epoch 96 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7930
+Average PSNR: 20.3343
+Average LPIPS: 0.2276
+--------------------------------------------------
+[续训] Epoch 97 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7848
+Average PSNR: 19.7419
+Average LPIPS: 0.2372
+--------------------------------------------------
+[续训] Epoch 98 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7858
+Average PSNR: 19.7794
+Average LPIPS: 0.2387
+--------------------------------------------------
+[续训] Epoch 99 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7853
+Average PSNR: 19.5107
+Average LPIPS: 0.2308
+--------------------------------------------------
+[续训] Epoch 100 Test Metrics (Average over 15 samples):
+Average SSIM: 0.7920
+Average PSNR: 20.0593
+Average LPIPS: 0.2267
+--------------------------------------------------

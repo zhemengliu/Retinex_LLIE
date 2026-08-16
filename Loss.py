@@ -64,7 +64,7 @@ class L_spa(nn.Module):
         D_right = torch.pow(D_org_right - D_enhance_right, 2)
         D_up = torch.pow(D_org_up - D_enhance_up, 2)
         D_down = torch.pow(D_org_down - D_enhance_down, 2)
-        E = torch.mean(D_left + D_right + D_up + D_down)
+        E = (D_left + D_right + D_up + D_down)
         return E
 
 
@@ -85,18 +85,74 @@ class L_exp(nn.Module):
         return d
 
 
+class GradientColorLoss(nn.Module):
+    """梯度颜色损失 - 保护颜色边缘信息"""
+
+    def __init__(self):
+        super(GradientColorLoss, self).__init__()
+
+    def forward(self, enhanced, original):
+        # 计算RGB各通道梯度
+        def gradient(x):
+            h_x = x.size()[2]
+            w_x = x.size()[3]
+            r = torch.abs(x[:, :, 1:, :] - x[:, :, :h_x - 1, :])
+            c = torch.abs(x[:, :, :, 1:] - x[:, :, :, :w_x - 1])
+            return r, c
+
+        enh_r_h, enh_r_w = gradient(enhanced)
+        org_r_h, org_r_w = gradient(original)
+
+        loss_h = torch.mean(torch.abs(enh_r_h - org_r_h))
+        loss_w = torch.mean(torch.abs(enh_r_w - org_r_w))
+
+        return loss_h + loss_w
+
+
 class L_color(nn.Module):
     def __init__(self):
         super(L_color, self).__init__()
-    def forward(self, x ):
+
+    def forward(self, x):
         x = torch.clamp(x, 0.0, 1.0)
-        b,c,h,w = x.shape
-        mean_rgb = torch.mean(x,[2,3],keepdim=True)
-        mr,mg, mb = torch.split(mean_rgb, 1, dim=1)
-        Drg = torch.pow(mr-mg,2)
-        Drb = torch.pow(mr-mb,2)
-        Dgb = torch.pow(mb-mg,2)
-        k = torch.pow(torch.pow(Drg,2) + torch.pow(Drb,2) + torch.pow(Dgb,2),0.5)
+        b, c, h, w = x.shape
+
+        # 调试信息
+        # print(f"L_color input shape: {x.shape}, channels: {c}")
+
+        # 确保输入是3通道RGB图像
+        if c == 1:
+            # 单通道图像：复制为3通道
+            x = x.repeat(1, 3, 1, 1)
+            c = 3
+        elif c == 2:
+            # 2通道：复制最后一个通道凑成3通道
+            x = torch.cat([x, x[:, -1:, :, :]], dim=1)
+            c = 3
+        elif c > 3:
+            # 多于3通道：取前3个通道
+            x = x[:, :3, :, :]
+            c = 3
+
+        # 现在x保证有3个通道
+        mean_rgb = torch.mean(x, [2, 3], keepdim=True)
+
+        # 安全分割
+        if mean_rgb.size(1) == 3:
+            mr, mg, mb = torch.split(mean_rgb, 1, dim=1)
+        else:
+            # 如果仍然不是3通道，使用备用方案
+            print(f"Warning: mean_rgb has {mean_rgb.size(1)} channels, expected 3")
+            # 创建三个相同的通道
+            mr = mean_rgb
+            mg = mean_rgb
+            mb = mean_rgb
+
+        Drg = torch.pow(mr - mg, 2)
+        Drb = torch.pow(mr - mb, 2)
+        Dgb = torch.pow(mb - mg, 2)
+        k = torch.pow(torch.pow(Drg, 2) + torch.pow(Drb, 2) + torch.pow(Dgb, 2), 0.5)
+
         # 关键修改：对 batch 维度取均值，确保返回标量
         return k.mean()
 
@@ -120,50 +176,60 @@ class L_TV(nn.Module):
         return self.TVLoss_weight * 2 * (h_tv / count_h + w_tv / count_w) / batch_size
 
 
-def compute_total_loss(x_low, low_R, low_L, gamma_R, gamma_L, x_gamma, enhance_L, enhance_img):
+def compute_total_loss(x_low, x_normal, low_R, low_L, gamma_R, gamma_L, enhance_L1, enhance_L, x_gamma, enhance_img,uretinex_opts):
     """总损失：Uretinex分解损失+Noise2noise去噪损失+Zero-DCE照明损失+重建损失"""
-    # 添加数值稳定性
-    # epsilon = 1e-8
     # 1. Uretinex分解损失（原始逻辑）
     # 分解保真损失：x_low ≈ R*L
+    # 添加调试信息
+    print(f"enhance_img shape: {enhance_img.shape}, channels: {enhance_img.size(1)}")
     decom_recon_loss = nn.MSELoss()(low_R * low_L, x_low) + nn.MSELoss()(gamma_R * gamma_L, x_gamma)
-    r_gradient_loss  = L_spa()(low_R, x_low) + L_spa()(gamma_R, x_gamma)
-    r_gradient_loss = torch.clamp(r_gradient_loss, 0, 10.0) # 防止梯度爆炸
-    decom_consist_loss = nn.MSELoss()(low_R, gamma_R)
-    decom_tv_loss = L_TV()(low_L)
-    low_L0 = torch.max(x_low, dim=1, keepdim=True)[0]  # 保留批次和通道维度
-    gamma_L0 = torch.max(x_gamma, dim=1, keepdim=True)[0]
-    low_L0 = torch.clamp(low_L0, 0, 1.0)  # 约束范围
-    gamma_L0 = torch.clamp(gamma_L0, 0, 1.0)
 
-    L_con = nn.MSELoss()(low_L0, low_L) + nn.MSELoss()(gamma_L0, gamma_L)
-
-    total_decom_loss = decom_recon_loss + 1 * decom_consist_loss + 0.01 * decom_tv_loss + 0.1 * r_gradient_loss + 0.1 * L_con
-    print(f'decom_recon_loss:{decom_recon_loss:.4f}, decom_consist_loss: {1*decom_consist_loss:.4f}, decom_tv_loss:{0.01 * decom_tv_loss:.4f}, L_con:{0.1 * L_con:.4f}, r_gradient_loss:{r_gradient_loss:.4f}')
+    decom_consist_loss = nn.MSELoss()(low_R, gamma_R)*0.1
+    # 照明层TV损失
+    decom_tv_loss = L_TV()(low_L) * uretinex_opts.tv_weight * 0.1
+    total_decom_loss = decom_recon_loss + decom_consist_loss + decom_tv_loss
 
     # 2. Noise2noise去噪损失（原始逻辑：带噪反射层→干净反射层）
-    # denoise_loss = nn.MSELoss()(denoise_R, gt_R)
+    # denoise_loss = nn.MSELoss()(denoise_R, gamma_R)
+
     # 3. Zero-DCE照明增强损失（原始逻辑）
-    # L_normal = torch.mean(x_normal, dim=1, keepdim=True)  # 正常光照明层标签
+    L_normal = torch.mean(x_normal, dim=1, keepdim=True)  # 正常光照明层标签
 
+    # # 确保enhance_img是3通道
+    # if enhance_img.size(1) != 3:
+    #     print(f"Warning: enhance_img has {enhance_img.size(1)} channels, converting to 3 channels")
+    #     if enhance_img.size(1) == 1:
+    #         enhance_img_color = enhance_img.repeat(1, 3, 1, 1)
+    #     else:
+    #         enhance_img_color = enhance_img[:, :3, :, :]  # 取前3个通道
+    # else:
+    #     enhance_img_color = enhance_img
+    # color_loss = L_color()(enhance_img_color)  # 扩3通道算颜色损失#######################改enhance_low为enhance_img
+
+    exp_loss = L_exp(patch_size=16, mean_val=0.5)(enhance_L)
+    color_loss_img = L_color()(enhance_img)
     # spa_loss = torch.mean(L_spa()(L_normal, enhance_L1))
-    # color_loss = L_color()(enhance_L)  # 扩3通道算颜色损失#######################改enhance_low为enhance_img
-    # tv_loss = L_TV()(enhance_img)
-    exp_loss = L_exp(patch_size=16, mean_val=0.6)(enhance_L)
-    # exp_loss_L = L_exp(patch_size=16, mean_val=0.6)(enhance_L)
+    # color_loss = L_color()(enhance_img)  # 扩3通道算颜色损失#######################改enhance_low为enhance_img
+    tv_loss = L_TV()(enhance_L)
 
-    total_illum_loss = exp_loss  #+ 0.01 * tv_loss #+ exp_loss_L+ 0.3 * color_loss
+
+    total_illum_loss =  exp_loss  + 0.01 * tv_loss #+ 0.3 * color_loss
+
+    ##########以enhance_L作为输入
+
+    # # 3. Zero-DCE照明增强损失（原始逻辑）
+    # L_normal = torch.mean(x_normal, dim=1, keepdim=True)  # 正常光照明层标签
+    # exp_loss = L_exp(patch_size=16, mean_val=0.5)(enhance_L)
+    # spa_loss = torch.mean(L_spa()(L_normal, enhance_L))
+    # color_loss = L_color()(enhance_img)  # 扩3通道算颜色损失#######################改enhance_low为enhance_img
+    # tv_loss = L_TV()(enhance_L)
+    # total_illum_loss = exp_loss + 0.01 * spa_loss + 0.3 * color_loss + 0.01 * tv_loss
+
+    # 4. 最终重建损失：增强图≈正常光图
+    # recon_final_loss = nn.L1Loss()(enhance_img, x_normal)
 
     # 总损失（关键修改：确保所有损失项都是标量，并最终求和为标量）
-    total_loss = total_decom_loss + total_illum_loss
-
-    # 最终数值检查
-    if torch.isnan(total_loss).any() or torch.isinf(total_loss).any():
-        print("警告：检测到NaN/Inf损失，使用备用损失")
-        # 使用简单的重建损失作为备用
-        total_loss = nn.MSELoss()(enhance_img, x_low)
-        total_decom_loss = total_loss * 0.5
-        total_illum_loss = total_loss * 0.5
+    total_loss = (0.2 * total_decom_loss + 0.3 * total_illum_loss )
 
     # 强制确保 total_loss 是标量（添加均值操作，针对可能的维度残留）
     if total_loss.dim() > 0:

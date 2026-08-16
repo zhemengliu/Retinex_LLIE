@@ -57,15 +57,13 @@ class enhance_net_nopool(nn.Module):
         x = x + r2 * (torch.pow(x, 2) - x)
         x = x + r3 * (torch.pow(x, 2) - x)
         enhance_image_1 = x + r4 * (torch.pow(x, 2) - x)
-        enhance_image_1 = torch.clamp(enhance_image_1, 0, 1)
         x = enhance_image_1 + r5 * (torch.pow(enhance_image_1, 2) - enhance_image_1)
         x = x + r6 * (torch.pow(x, 2) - x)
         x = x + r7 * (torch.pow(x, 2) - x)
         enhance_image = x + r8 * (torch.pow(x, 2) - x)
-        enhance_image = torch.clamp(enhance_image, 0, 1)
         r = torch.cat([r1, r2, r3, r4, r5, r6, r7, r8], 1)
         # 原始返回值：中间增强图+最终增强图+增强系数，未修改
-        return enhance_image, r
+        return enhance_image_1, enhance_image, r
 
 
 if __name__== '__main__':
